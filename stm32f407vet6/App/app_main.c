@@ -15,10 +15,7 @@ void app_main()
 
     /* ---- LCD 初始化 ---- */
     ILI9341_Init();
-    ILI9341_Clear(ILI9341_COLOR_BLUE);
-    printf("LCD init finished\r\n");
 
-    /* ---- OV7670 QQVGA ---- */
     OV7670_Init();
     OV7670_Start();
 

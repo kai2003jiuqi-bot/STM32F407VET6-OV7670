@@ -13,6 +13,7 @@
  ******************************************************************************/
 
 #include "main.h"
+#include "gpio.h"
 
 /******************************************************************************
  *                            CONFIGURATION MACRO                             *
@@ -29,10 +30,10 @@
 #define OV7670_DELAY(ms)                         HAL_Delay(ms)
 
 /* GPIO pin mapping */
-#define OV7670_GPIO_PORT_PWDN                    CAM_PWDN_GPIO_Port
-#define OV7670_GPIO_PIN_PWDN                     CAM_PWDN_Pin
-#define OV7670_GPIO_PORT_RET                     CAM_RET_GPIO_Port
-#define OV7670_GPIO_PIN_RET                      CAM_RET_Pin
+#define OV7670_GPIO_PORT_PWDN                    OV7670_PWDN_GPIO_Port
+#define OV7670_GPIO_PIN_PWDN                     OV7670_PWDN_Pin
+#define OV7670_GPIO_PORT_RET                     OV7670_RST_GPIO_Port
+#define OV7670_GPIO_PIN_RET                      OV7670_RST_Pin
 /* Note: XLK pin shall be connected to the corresponding timer OCU pin */
 /* D0..D7, VS, HS, PLK shall be connected to 8-bit with External Sync DCMI */
 /* SCCB SCL, SDA - to I2C */

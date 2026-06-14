@@ -49,6 +49,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/log.c
     App/bootCount.c
     App/ili9341_display.c
+    App/OV7670.c
 )
 
 # Add include paths

@@ -28,7 +28,7 @@
 /*                   屏幕方向配置                                         */
 /* ==================================================================== */
 
-#define ILI9341_DISPLAY_ORIENTATION 1   /* 0: 正竖屏 1: 反竖屏 2: 正横屏 3: 反横屏 */
+#define ILI9341_DISPLAY_ORIENTATION 2   /* 0: 正竖屏 1: 反竖屏 2: 正横屏 3: 反横屏 */
 
 #if (ILI9341_DISPLAY_ORIENTATION == 0) || (ILI9341_DISPLAY_ORIENTATION == 1)
     #define ILI9341_WIDTH   240U

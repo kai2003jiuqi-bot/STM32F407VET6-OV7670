@@ -85,8 +85,12 @@ static void ILI9341_WriteRST(uint8_t state)
 
 static void ILI9341_PinInit(void)
 {
+    ILI9341_WriteCS(1);  /* CS=HIGH 确保 SPI 非选中 */
     ILI9341_WriteDC(1);
-    ILI9341_WriteRST(1);
+    /* 注意：不在这里拉高 RST！
+     * GPIO 初始化时 RST 已经是 LOW，HardwareReset 会接管时序。
+     * 如果在这里拉高再拉低，会产生一个极短的 LOW 脉冲
+     * 导致 ILI9341 上电状态机混乱，白屏概率 ~70% */
 }
 
 /* ==================================================================== */
@@ -415,6 +419,7 @@ void ILI9341_Init(void)
         ILI9341_WriteData8(s_gamma_neg[i]);
     }
 
-    /* 显示开启 */
+    /* 显示开启，等待稳定 */
     ILI9341_WriteCmd(ILI9341_CMD_DISPON);
+    ILI9341_Delay(50);  /* 等屏幕完全点亮再写像素数据 */
 }

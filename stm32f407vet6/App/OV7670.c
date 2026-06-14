@@ -169,14 +169,11 @@ static uint32_t            ov_mode;
 static volatile uint32_t   ov_buf_addr;
 static volatile uint32_t   ov_line_cnt;
 static volatile uint8_t    ov_state;
-
 /* Image buffer */
 static uint8_t buffer[160*120*2];
-
 /******************************************************************************
  *                       LOCAL FUNCTIONS PROTOTYPES                           *
  ******************************************************************************/
-
 static HAL_StatusTypeDef SCCB_Write(uint8_t regAddr, uint8_t data);
 static HAL_StatusTypeDef SCCB_Read(uint8_t regAddr, uint8_t *data);
 static uint8_t isFrameCaptured(void);
@@ -239,10 +236,8 @@ void OV7670_Start(void)
     __disable_irq();
     /* Update requested mode */
     ov_mode = DCMI_MODE_CONTINUOUS;
-#if (OV7670_STREAM_MODE == OV7670_STREAM_MODE_BY_LINE)
     /* Reset buffer address */
     ov_buf_addr = OV7670_RESET_BUFFER_ADDR();
-#endif
     /* Reset line counter */
     ov_line_cnt = 0U;
     ov_state = BUSY;
@@ -271,39 +266,6 @@ uint8_t OV7670_isDriverBusy(void)
     __enable_irq();
     return retVal;
 }
-
-
-/******************************************************************************
- *                               HAL CALLBACKS                                *
- ******************************************************************************/
-
-#if (OV7670_STREAM_MODE == OV7670_STREAM_MODE_BY_FRAME)
-
-void HAL_DCMI_VsyncEventCallback(DCMI_HandleTypeDef *hdcmi)
-{
-    /* Disable DCMI Camera interface */
-    HAL_DCMI_Stop(hdcmi);
-
-    /* Stop camera XLK signal until captured image data is drawn */
-    HAL_TIM_OC_Stop(&htim5, TIM_CHANNEL_3);
-
-    /* 直接写到 LCD */
-    ILI9341_SetRegion(0, 0, OV7670_WIDTH - 1, OV7670_HEIGHT - 1);
-    ILI9341_WritePixels((const uint16_t *)ov_buf_addr, OV7670_WIDTH * OV7670_HEIGHT);
-
-    /* Reset line counter */
-    ov_line_cnt = 0U;
-    //TODO: check for full-size QVGA buffer mode
-    HAL_DCMI_Start_DMA(hdcmi, DCMI_MODE_CONTINUOUS, ov_buf_addr,
-            OV7670_FRAME_SIZE_WORDS);
-}
-
-void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
-{
-}
-
-#else
-
 
 void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
 {
@@ -370,8 +332,6 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
         __enable_irq();
     }
 }
-
-#endif /* (OV7670_STREAM_MODE == OV7670_STREAM_MODE_BY_LINE) */
 
 
 /******************************************************************************

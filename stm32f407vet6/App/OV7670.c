@@ -19,6 +19,7 @@
 #define OV7670_SCCB_ADDR              0x42U
 
 static volatile uint32_t   ov_buf_addr;
+static volatile uint32_t   ov_line_cnt;
 static volatile uint8_t    ov_state;
 static uint8_t buffer[OV7670_WIDTH * OV7670_HEIGHT * 2];
 static uint8_t OV7670_SCCB_Write(uint8_t regAddr, uint8_t data);
@@ -75,12 +76,13 @@ void OV7670_Start(void)
     /* Reset buffer address */
     ov_buf_addr = (uint32_t)buffer;
     /* Reset line counter */
+    ov_line_cnt = 0U;
     ov_state = 1;
     __enable_irq();
     /* Start camera XLK signal to capture the image data */
     OV7670_XLK_Enable();
     /* Start DCMI capturing */
-    HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, ov_buf_addr, (OV7670_WIDTH * OV7670_HEIGHT / 2U));
+    HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, ov_buf_addr, (OV7670_WIDTH / 2U));
 }
 
 void OV7670_Stop(void)
@@ -101,13 +103,49 @@ uint8_t OV7670_isDriverBusy(void)
     return retVal;
 }
 
-void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
+void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
 {
-    HAL_DCMI_Stop(hdcmi);
-    ILI9341_SetRegion(0, 0, OV7670_WIDTH - 1, OV7670_HEIGHT - 1);
-    ILI9341_WritePixels((const uint16_t *)buffer, OV7670_WIDTH * OV7670_HEIGHT);
-    HAL_DCMI_Start_DMA(hdcmi, DCMI_MODE_CONTINUOUS, (uint32_t)buffer,
-                       (OV7670_WIDTH * OV7670_HEIGHT / 2U));
+    uint8_t state = 1;
+    uint32_t buf_addr = 0x0U;
+    uint32_t lineCnt;
+
+    __disable_irq();
+    lineCnt = ov_line_cnt;
+    __enable_irq();
+
+    /* If this line is the last line of the frame */
+    if (lineCnt == OV7670_HEIGHT - 1U)
+    {
+        HAL_DCMI_Stop(hdcmi);
+        lineCnt = 0U;
+    }
+    else
+    {
+        /* Increment line counter */
+        lineCnt++;
+    }
+
+    if (1U)  /* 每行都显示 */
+    {
+        /* 直接写到 LCD */
+        ILI9341_SetRegion(0U, lineCnt, OV7670_WIDTH - 1U, lineCnt);
+        ILI9341_WritePixels((const uint16_t *)ov_buf_addr, OV7670_WIDTH);
+
+        /* If driver is still working */
+        if (state == 1)
+        {
+            /* Update buffer address with the next half-part */
+            buf_addr = (ov_buf_addr != (uint32_t)buffer) ? (uint32_t)buffer : (ov_buf_addr + (OV7670_WIDTH * 2U));
+            /* Capture next line from the snapshot/stream */
+            HAL_DCMI_Start_DMA(hdcmi, DCMI_MODE_CONTINUOUS, buf_addr, (OV7670_WIDTH / 2U));
+        }
+    }
+
+    __disable_irq();
+    ov_line_cnt = lineCnt;
+    ov_state = state;
+    ov_buf_addr = (buf_addr) ? buf_addr : ov_buf_addr;
+    __enable_irq();
 }
 
 

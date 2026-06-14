@@ -1,5 +1,6 @@
 /*
  * 简述：
+ * 基于STM32F407VET6；
  * OV7670摄像头驱动，采用QQVGA分辨率160x120，采用DCMI的循环DMA采集模式
  * 采集一帧图像会触发一次中断。
  * 使用方法：
@@ -27,7 +28,6 @@
 #define OV7670_SCCB_ADDR              0x42U
 
 static uint8_t capture_data[OV7670_WIDTH * OV7670_HEIGHT * 2];
-
 static uint8_t OV7670_SCCB_Write(uint8_t regAddr, uint8_t data);
 static uint8_t OV7670_SCCB_Read(uint8_t regAddr, uint8_t *data);
 static void OV7670_Delay(uint32_t time);

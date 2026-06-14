@@ -1,148 +1,127 @@
 /**
- * @file ili9341_display.h
- * @brief           :  ILI9341显示屏驱动, 包含STM32F407VET6的引脚定义，以及屏幕方向的选择
- *              
- * @date 2025-11-12
- * 
- * 
+ * @file    ili9341_display.h
+ * @brief   ILI9341 LCD 驱动头文件, 通过 SPI 接口控制 240x320 TFT 屏幕
+ * @details 本驱动通过 STM32F407VET6 的 SPI1 接口与 ILI9341 通信,
+ *          支持 4 种屏幕方向切换, 16位 RGB565 色彩格式。
+ *
+ *          引脚定义:
+ *          - LCD_CS:   SPI 片选 (低电平有效)
+ *          - LCD_DC:   数据/命令选择 (0=命令, 1=数据)
+ *          - LCD_RST:  硬件复位 (低电平复位)
+ *          - LCD_BL:   背光控制 (PWM)
+ *
+ *          屏幕方向:
+ *          ILI9341_DISPLAY_ORIENTATION 宏控制屏幕方向, 可选 0~3:
+ *          0 = 正竖屏 (Portrait), 1 = 反竖屏 (Portrait Reverse)
+ *          2 = 正横屏 (Landscape), 3 = 反横屏 (Landscape Reverse)
+ *
+ * @note    触摸方向宏 (ILI9341_TOUCH_DIRECTION) 必须与此保持一致
  */
-#ifndef __ili9341_display_H
-#define __ili9341_display_H
+#ifndef ILI9341_DISPLAY_H
+#define ILI9341_DISPLAY_H
 
+#include <stdint.h>
+#include "main.h"
 #include "spi.h"
-#include "gpio.h"
 
-// 更改这里，调整、屏幕方向
-#define USE_HORIZONTAL 3  // 0: 正竖屏 1: 反竖屏 2: 正横屏 3: 反横屏
+/* ==================================================================== */
+/*                   屏幕方向配置                                         */
+/* ==================================================================== */
 
-void ili9341_display_hardware_reset(void);     
-void ili9341_display_write_index(uint8_t Index);
-void ili9341_display_write_data_8bit(uint8_t Data);
-void ili9341_display_write_data_16bit(uint16_t Data);
-void ili9341_display_write_data_bulk_16bit(uint16_t *data, uint32_t len);
-void ili9341_display_set_xy(uint16_t Xpos, uint16_t Ypos);
-void ili9341_display_set_region(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd);
-void ili9341_display_init(void);
-void ili9341_display_drawPoint(uint16_t x, uint16_t y, uint16_t color);
-void ili9341_display_clear(uint16_t color);
+#define ILI9341_DISPLAY_ORIENTATION 1   /* 0: 正竖屏 1: 反竖屏 2: 正横屏 3: 反横屏 */
 
-// 设置屏幕方向
-#if (USE_HORIZONTAL==0 || USE_HORIZONTAL==1)
-    #define X_MAX_PIXEL  240
-    #define Y_MAX_PIXEL  320
+#if (ILI9341_DISPLAY_ORIENTATION == 0) || (ILI9341_DISPLAY_ORIENTATION == 1)
+    #define ILI9341_WIDTH   240U
+    #define ILI9341_HEIGHT  320U
+#else
+    #define ILI9341_WIDTH   320U
+    #define ILI9341_HEIGHT  240U
 #endif
 
-#if( USE_HORIZONTAL==2 || USE_HORIZONTAL==3)
-    #define X_MAX_PIXEL  320
-    #define Y_MAX_PIXEL  240
-#endif
+/* ==================================================================== */
+/*                   颜色宏定义 (RGB565)                                  */
+/* ==================================================================== */
 
-// 颜色宏定义
-#define ILI9341_BLACK   0x0000
-#define ILI9341_WHITE   0xFFFF
-#define ILI9341_RED     0xF800
-#define ILI9341_GREEN   0x07E0
-#define ILI9341_BLUE    0x001F
-#define ILI9341_YELLOW  0xFFE0
-#define ILI9341_CYAN    0x07FF
-#define ILI9341_MAGENTA 0xF81F
+#define ILI9341_COLOR_BLACK    0x0000U
+#define ILI9341_COLOR_WHITE    0xFFFFU
+#define ILI9341_COLOR_RED      0xF800U
+#define ILI9341_COLOR_GREEN    0x07E0U
+#define ILI9341_COLOR_BLUE     0x001FU
+#define ILI9341_COLOR_YELLOW   0xFFE0U
+#define ILI9341_COLOR_CYAN     0x07FFU
+#define ILI9341_COLOR_MAGENTA  0xF81FU
 
-// ILI9341 寄存器宏定义
-#define ILI9341_CMD_SLPOUT        0x11    // 睡眠退出
-#define ILI9341_CMD_CF            0xCF    // 电源控制B
-#define ILI9341_CMD_ED            0xED    // 电源控制A
-#define ILI9341_CMD_E8            0xE8    // 驱动时序控制A
-#define ILI9341_CMD_F6            0xF6    // 接口控制
-#define ILI9341_CMD_CB            0xCB    // 电源控制B
-#define ILI9341_CMD_F7            0xF7    // 驱动时序控制B
-#define ILI9341_CMD_EA            0xEA    // 驱动时序控制C
-#define ILI9341_CMD_C0            0xC0    // 面板控制
-#define ILI9341_CMD_C1            0xC1    // 电源控制1
-#define ILI9341_CMD_C5            0xC5    // 电源控制2
-#define ILI9341_CMD_C7            0xC7    // 电源控制3
-#define ILI9341_CMD_PIXFMT        0x3A    // 像素格式设置
-#define ILI9341_CMD_MADCTL        0x36    // 内存访问控制
-#define ILI9341_CMD_FRMCTR1       0xB1    // 帧速率控制1
-#define ILI9341_CMD_DFUNCTR       0xB4    // 显示功能控制
-#define ILI9341_CMD_GAMMASET      0xF2    // 伽马设置
-#define ILI9341_CMD_GAMMA_CURV    0x26    // 伽马曲线选择
-#define ILI9341_CMD_PGAMMA        0xE0    // 正伽马校正
-#define ILI9341_CMD_NGAMMA        0xE1    // 负伽马校正
-#define ILI9341_CMD_DISPON        0x29    // 显示开启
-#define ILI9341_CMD_CASET         0x2A    // 列地址设置
-#define ILI9341_CMD_PASET         0x2B    // 页地址设置
-#define ILI9341_CMD_RAMWR         0x2C    // 内存写入
-#define ILI9341_SLPOUT_PARAM        0x00    // 睡眠退出无意义参数（占位用）
+/* ==================================================================== */
+/*                   命令宏定义                                           */
+/* ==================================================================== */
 
-// CF命令（0xCF，电源控制B）参数
-#define ILI9341_CF_PARAM1           0x00    // 内部电压调整基础值
-#define ILI9341_CF_PARAM2           0xC1    // 电源控制B第二参数
-#define ILI9341_CF_PARAM3           0x30    // 电源控制B第三参数
+#define ILI9341_CMD_SLPOUT     0x11U
+#define ILI9341_CMD_SWRESET    0x01U
+#define ILI9341_CMD_CASET      0x2AU
+#define ILI9341_CMD_PASET      0x2BU
+#define ILI9341_CMD_RAMWR      0x2CU
+#define ILI9341_CMD_MADCTL     0x36U
+#define ILI9341_CMD_PIXFMT     0x3AU
+#define ILI9341_CMD_DISPON     0x29U
 
-// ED命令（0xED，电源控制A）参数
-#define ILI9341_ED_PARAM1           0x64    // 电源控制A第一参数
-#define ILI9341_ED_PARAM2           0x03    // 电源控制A第二参数
-#define ILI9341_ED_PARAM3           0x12    // 电源控制A第三参数
-#define ILI9341_ED_PARAM4           0x81    // 电源控制A第四参数
+/* MADCTL 方向值 */
+#define ILI9341_MADCTL_PORTRAIT_NORMAL   0x88U
+#define ILI9341_MADCTL_PORTRAIT_REV      0x48U
+#define ILI9341_MADCTL_LANDSCAPE_NORMAL  0xE8U
+#define ILI9341_MADCTL_LANDSCAPE_REV     0x28U
 
-// E8命令（0xE8，驱动时序控制A）参数
-#define ILI9341_E8_PARAM1           0x85    // 驱动时序A第一参数
-#define ILI9341_E8_PARAM2           0x11    // 驱动时序A第二参数
-#define ILI9341_E8_PARAM3           0x78    // 驱动时序A第三参数
+/* ==================================================================== */
+/*                   函数声明                                             */
+/* ==================================================================== */
 
-// F6命令（0xF6，接口控制）参数
-#define ILI9341_F6_PARAM1           0x01    // 接口数据传输模式
-#define ILI9341_F6_PARAM2           0x30    // 接口时序调整
-#define ILI9341_F6_PARAM3           0x00    // 默认接口时序（关闭特殊模式）
+/**
+ * @brief   初始化 ILI9341 显示屏
+ */
+void ILI9341_Init(void);
 
-// CB命令（0xCB，电源控制1）参数
-#define ILI9341_CB_PARAM1           0x39    // 电源控制1第一参数
-#define ILI9341_CB_PARAM2           0x2C    // 电源控制1第二参数
-#define ILI9341_CB_PARAM3           0x00    // 电源控制1第三参数
-#define ILI9341_CB_PARAM4           0x34    // 电源控制1第四参数
-#define ILI9341_CB_PARAM5           0x05    // 电源控制1第五参数
+/**
+ * @brief   硬件复位 ILI9341
+ */
+void ILI9341_HardwareReset(void);
 
-// F7命令（0xF7，驱动时序控制B）参数
-#define ILI9341_F7_PARAM            0x20    // 驱动时序B参数
+/**
+ * @brief   在指定坐标绘制一个像素点
+ * @param   x      X 坐标
+ * @param   y      Y 坐标
+ * @param   color  16位 RGB565 颜色值
+ */
+void ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color);
 
-// EA命令（0xEA，厂商自定义扩展命令）参数
-#define ILI9341_EA_PARAM1           0x00    // 扩展命令默认参数1
-#define ILI9341_EA_PARAM2           0x00    // 扩展命令默认参数2
+/**
+ * @brief   用指定颜色清空全屏
+ * @param   color  16位 RGB565 颜色值
+ */
+void ILI9341_Clear(uint16_t color);
 
-// C0命令（0xC0，亮度控制1）参数
-#define ILI9341_C0_PARAM            0x20    // 亮度控制基础值
+/**
+ * @brief   设置矩形显示区域 (用于批量填充)
+ * @param   x_start, y_start, x_end, y_end  矩形区域边界
+ */
+void ILI9341_SetRegion(uint16_t x_start, uint16_t y_start,
+                       uint16_t x_end,   uint16_t y_end);
 
-// C1命令（0xC1，亮度控制2）参数
-#define ILI9341_C1_PARAM            0x11    // 亮度控制微调值
+/**
+ * @brief   批量写入 16位 像素数据
+ * @param   data  像素数据数组
+ * @param   len   像素数量
+ */
+void ILI9341_WritePixels(const uint16_t *data, uint32_t len);
 
-// C5命令（0xC5，色温控制）参数
-#define ILI9341_C5_PARAM1           0x31    // 色温控制第一参数
-#define ILI9341_C5_PARAM2           0x3C    // 色温控制第二参数
+/**
+ * @brief   写命令索引
+ * @param   cmd  命令字节
+ */
+void ILI9341_WriteCmd(uint8_t cmd);
 
-// C7命令（0xC7，负色温控制）参数
-#define ILI9341_C7_PARAM            0xA9    // 负色温控制参数
+/**
+ * @brief   写 8位 数据
+ * @param   data  数据字节
+ */
+void ILI9341_WriteData8(uint8_t data);
 
-// PIXFMT（像素格式）命令参数
-#define ILI9341_PIXFMT_16BIT        0x55    // 16位RGB565像素格式（常用）
-
-// FRMCTR1（帧速率控制1）命令参数
-#define ILI9341_FRMCTR1_PARAM1      0x00    // 帧速率控制基础值
-#define ILI9341_FRMCTR1_PARAM2      0x18    // 帧速率调整（约60Hz）
-
-// DFUNCTR（显示功能控制）命令参数
-#define ILI9341_DFUNCTR_PARAM1      0x00    // 显示功能控制1
-#define ILI9341_DFUNCTR_PARAM2      0x00    // 显示功能控制2
-
-// GAMMASET（伽马设置）命令参数
-#define ILI9341_GAMMASET_PARAM      0x00    // 伽马曲线选择（默认曲线）
-
-// GAMMA_CURV（伽马曲线启用）命令参数
-#define ILI9341_GAMMA_CURV_PARAM    0x01    // 启用用户自定义伽马曲线
-
-// 内存访问控制方向宏定义（对应 USE_HORIZONTAL 配置）
-#define ILI9341_MADCTL_PORTRAIT_NORMAL  0x88    // 正竖屏：MY=0, MX=1, MV=0, BGR=1
-#define ILI9341_MADCTL_PORTRAIT_REV    0x48    // 反竖屏：MY=1, MX=0, MV=0, BGR=1
-#define ILI9341_MADCTL_LANDSCAPE_NORMAL 0xE8   // 正横屏：MY=0, MX=0, MV=1, BGR=1
-#define ILI9341_MADCTL_LANDSCAPE_REV   0x28    // 反横屏：MY=1, MX=1, MV=1, BGR=1
-
-#endif
+#endif /* ILI9341_DISPLAY_H */

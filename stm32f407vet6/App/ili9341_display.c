@@ -1,377 +1,421 @@
 /**
- * @file ili9341_display.c
- * @brief           :实现了ILI9341的显示驱动，使用时替换接口函数既可。
- *                  :使用方法
- *                  :1、调用ili9341_display_Init()初始化
- *                  :2、调用ili9341_display_Clear()清屏
- *                  :3、配合lvgl使用
- * @date 2025-11-12
- * 
- * 
+ * @file    ili9341_display.c
+ * @brief   ILI9341 LCD 驱动实现, 通过 SPI1 接口控制 240x320 TFT 屏幕
+ *
+ * ========== 硬件接口 ==========
+ *   - SPI1 总线 (与 VS1003/XPT2046/W25Q64 共享, 通过互斥锁保护)
+ *   - CS:  片选 (SPI 分频 2 — 最高速 ~21MHz, 因为 LCD 数据传输量大)
+ *   - DC:  数据/命令选择引脚
+ *   - RST: 硬件复位引脚
+ *
+ * ========== 通信协议 ==========
+ *   ILI9341 使用 SPI 模式 0 (CPOL=0, CPHA=0):
+ *     1. 拉低 CS 获取总线
+ *     2. DC=0: 发送命令字节
+ *     3. DC=1: 发送参数/像素数据
+ *     4. 拉高 CS 释放总线
+ *
+ * ========== 像素格式 ==========
+ *   16 位 RGB565:
+ *     bit15-11: R (红色, 5 位)
+ *     bit10-5:  G (绿色, 6 位)
+ *     bit4-0:   B (蓝色, 5 位)
+ *
+ * ========== 使用方法 ==========
+ *   1. 调用 ILI9341_Init() 初始化
+ *   2. 调用 ILI9341_Clear() 清屏
+ *   3. 配合 LVGL 图形库使用
+ *
+ * @date    2025-11-12
  */
-
 #include "ili9341_display.h"
 
-/* ------------------------------------------SPI和GPIO接口-begin---------------------------------------------- */
-/** ====================================
- * @brief 延时函数
- * 
- * @param ms 
- * ==================================== */
-void ili9341_display_delay(uint32_t ms)
+/* ==================================================================== */
+/*               延迟与 SPI 底层接口                                      */
+/* ==================================================================== */
+
+static void ILI9341_Delay(uint32_t ms)
 {
     HAL_Delay(ms);
 }
 
-/** ====================================
- * @brief SPI传输数据
- * 
- * @param data 
- * @param len 
- * ==================================== */
-void ili9341_display_spi_trasmit(uint8_t *data, uint16_t len)
+static void ILI9341_SPI_Transmit(const uint8_t *data, uint16_t len)
 {
-    HAL_SPI_Transmit(&hspi2, data, len, 0xffff);
-    // HAL_SPI_Transmit(&hspi1, data, len, 0xffff);
-    // HAL_SPI_Transmit_DMA(&hspi2, data, len);
+    HAL_SPI_Transmit(&hspi2, (uint8_t *)data, len, 100);
 }
 
-/** ====================================
- * @brief 设置CS引脚高低电平
- * 
- * @param cs 
- * ==================================== */
-void ili9341_display_write_cs(uint8_t cs)
+/* ==================================================================== */
+/*               GPIO 引脚控制                                            */
+/* ==================================================================== */
+
+/*
+ * 函数: ILI9341_WriteCS
+ * 功能: 控制 ILI9341 的片选 (CS) 引脚
+ *
+ * 操作流程:
+ *   拉低 CS 前:
+ *     - 获取 SPI 互斥锁 (xSemaphoreTake)
+ *     - 配置 SPI 为 2 分频 (~21MHz) — 最高速率, 提高刷新率
+ *     - 重新初始化 SPI 以应用新分频
+ *   拉高 CS 后:
+ *     - 释放 SPI 互斥锁 (xSemaphoreGive)
+ */
+static void ILI9341_WriteCS(uint8_t cs)
 {
-    HAL_GPIO_WritePin(LCD_CS_Pin, LCD_CS_GPIO_Port, cs ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    if (cs == 0)
+    {
+        hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+        HAL_SPI_Init(&hspi2);
+    }
+    HAL_GPIO_WritePin(LCD_CS_GPIO_Port, LCD_CS_Pin,
+                      cs ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
-/** ====================================
- * @brief 设置RS引脚高低电平
- * 
- * @param rs 
- * ==================================== */
-void ili9341_display_write_dcs(uint8_t state)
+static void ILI9341_WriteDC(uint8_t state)
 {
-    HAL_GPIO_WritePin(LCD_DC_Pin, LCD_DC_GPIO_Port, state ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LCD_DC_GPIO_Port, LCD_DC_Pin,
+                      state ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
-/** ====================================
- * @brief 设置RST引脚高低电平
- * 
- * @param state 
- * ==================================== */
-void ili9341_display_write_rst(uint8_t state)
+static void ILI9341_WriteRST(uint8_t state)
 {
-    HAL_GPIO_WritePin(LCD_RST_Pin, LCD_RST_GPIO_Port, state ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LCD_RST_GPIO_Port, LCD_RST_Pin,
+                      state ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
-/** ====================================
- * @brief 设置背光引脚高低电平
- * 
- * @param state
- * ==================================== */
-void ili9341_display_set_led(uint8_t state)
+static void ILI9341_PinInit(void)
 {
-    HAL_GPIO_WritePin(LCD_LED_Pin, LCD_LED_GPIO_Port, state ? GPIO_PIN_SET : GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LCD_CS_GPIO_Port, LCD_CS_Pin, GPIO_PIN_SET);
+    ILI9341_WriteDC(1);
+    ILI9341_WriteRST(1);
 }
 
-/** ====================================
- * @brief 初始化 ILI9341 控制引脚
- * ==================================== */
-void ili9341_display_pin_init(void)
-{
-    ili9341_display_write_cs(1); 
-    ili9341_display_write_dcs(1);
-    ili9341_display_write_rst(1);
-    ili9341_display_set_led(1);
-}
-/* ------------------------------------------SPI和GPIO接口-end---------------------------------------------- */
+/* ==================================================================== */
+/*               写命令/数据函数                                         */
+/* ==================================================================== */
 
-/** ====================================
- * @brief ILI9341 复位
- * 
- * ==================================== */
-void ili9341_display_hardware_reset(void)
+/*
+ * 函数: ILI9341_WriteCmd
+ * 功能: 向 ILI9341 写入一个命令字节 (DC=0)
+ *
+ * 典型命令如: 0x11 (SLPOUT — 退出睡眠), 0x29 (DISPON — 显示开启)
+ */
+void ILI9341_WriteCmd(uint8_t cmd)
 {
-    ili9341_display_write_rst(0);
-    ili9341_display_delay(100);  
-    ili9341_display_write_rst(1);
-    ili9341_display_delay(50);
+    ILI9341_WriteCS(0);
+    ILI9341_WriteDC(0);
+    ILI9341_SPI_Transmit(&cmd, 1);
+    ILI9341_WriteCS(1);
 }
 
-/** ====================================
- * @brief 发送指令如清屏、显示区域等
- * 
- * @param Index 
- * ==================================== */
-void ili9341_display_write_index(uint8_t Index)
+/*
+ * 函数: ILI9341_WriteData8
+ * 功能: 向 ILI9341 写入一个数据字节 (DC=1)
+ */
+void ILI9341_WriteData8(uint8_t data)
 {
-    ili9341_display_write_cs(0);
-    ili9341_display_write_dcs(0);   
-    ili9341_display_spi_trasmit(&Index, 1);
-    ili9341_display_write_cs(1);
+    ILI9341_WriteCS(0);
+    ILI9341_WriteDC(1);
+    ILI9341_SPI_Transmit(&data, 1);
+    ILI9341_WriteCS(1);
 }
 
-/** ==================================== 
- * @brief 发送数据，如颜色等
- * 
- * @param Data 
- * ==================================== */
-void ili9341_display_write_data_8bit(uint8_t Data)
-{
-    ili9341_display_write_cs(0);
-    ili9341_display_write_dcs(1);    
-    ili9341_display_spi_trasmit(&Data, 1);
-    ili9341_display_write_cs(1);
-}
+/* ==================================================================== */
+/*               高级绘图函数                                            */
+/* ==================================================================== */
 
-/** ====================================
- * @brief 发送16位数据
- * 
- * @param Data 
- * ==================================== */
-void ili9341_display_write_data_16bit(uint16_t Data)
+/*
+ * 函数: ILI9341_WritePixels
+ * 功能: 批量写入像素数据到 ILI9341 GRAM (必须先在 SetRegion 后调用)
+ *
+ * 数据流优化:
+ *   将像素数据分割为 ILI9341_CHUNK_SIZE (512) 个一批,
+ *   每批转换为 SPI 友好的连续字节流 (RGB565 高低字节分开),
+ *   一次性发送以减少 SPI 操作次数。
+ *
+ * 输入 data: RGB565 像素数组
+ * 输出:      SPI 字节流 (高字节在前, 低字节在后)
+ *
+ * @param data  像素数组指针
+ * @param len   像素数量 (注意: 不是字节数)
+ */
+void ILI9341_WritePixels(const uint16_t *data, uint32_t len)
 {
-    uint8_t high = Data >> 8;
-    uint8_t low = Data & 0xFF;
-    ili9341_display_write_data_8bit(high);
-    ili9341_display_write_data_8bit(low);
-}
+#define ILI9341_CHUNK_SIZE 512U
 
-/** ====================================
- * @brief 连续写多个像素
- * 
- * @param data 
- * @param len 
- * ==================================== */
-void ili9341_display_write_data_bulk_16bit(uint16_t *data, uint32_t len)
-{
-    ili9341_display_write_cs(0);
-    ili9341_display_write_dcs(1);
-
-    // 使用小缓冲区，分批发送
-    #define CHUNK_SIZE 512  // 512像素 = 1024字节
-    uint8_t spi_buf[CHUNK_SIZE * 2];
-    
+    uint8_t spi_buf[ILI9341_CHUNK_SIZE * 2];
     uint32_t remaining = len;
     uint32_t offset = 0;
-    
-    while (remaining > 0) 
+
+    ILI9341_WriteCS(0);
+    ILI9341_WriteDC(1);
+
+    while (remaining > 0)
     {
-        uint32_t chunk_len = (remaining > CHUNK_SIZE) ? CHUNK_SIZE : remaining;
-        
-        // 填充缓冲区
-        for (uint32_t i = 0; i < chunk_len; i++) 
+        /*
+         * 分批处理: 每次最多 CHUNK_SIZE 个像素
+         * 转换 RGB565 像素为 SPI 字节流 (大端序)
+         */
+        uint32_t chunk_len = (remaining > ILI9341_CHUNK_SIZE) ? ILI9341_CHUNK_SIZE : remaining;
+
+        for (uint32_t i = 0; i < chunk_len; i++)
         {
-            spi_buf[2 * i]     = data[offset + i] >> 8;
-            spi_buf[2 * i + 1] = data[offset + i] & 0xFF;
+            spi_buf[2U * i]     = (uint8_t)(data[offset + i] >> 8U);
+            spi_buf[2U * i + 1] = (uint8_t)(data[offset + i] & 0xFFU);
         }
-        
-        // 发送数据
-        ili9341_display_spi_trasmit(spi_buf, chunk_len * 2);
-        
+
+        ILI9341_SPI_Transmit(spi_buf, (uint16_t)(chunk_len * 2U));
         offset += chunk_len;
         remaining -= chunk_len;
     }
 
-    ili9341_display_write_cs(1);
+    ILI9341_WriteCS(1);
 }
 
-/** ====================================
- * @brief 设置显示坐标
- * 
- * @param Xpos 
- * @param Ypos 
- * ==================================== */
-void ili9341_display_set_xy(uint16_t Xpos, uint16_t Ypos)
+/*
+ * 函数: ILI9341_SetRegion
+ * 功能: 设置 ILI9341 的 GRAM 写入窗口区域
+ *
+ * ILI9341 的命令序列:
+ *   CASET (0x2A): 设置列起始和结束地址
+ *   PASET (0x2B): 设置行起始和结束地址
+ *   RAMWR (0x2C): 开始写入 GRAM
+ *
+ * 之后调用 WritePixels 时, 像素将从 (x_start, y_start) 开始填充,
+ * 自动换行到 (x_end, y_end) 结束。
+ */
+void ILI9341_SetRegion(uint16_t x_start, uint16_t y_start,
+                       uint16_t x_end,   uint16_t y_end)
 {
-    ili9341_display_write_index(ILI9341_CMD_CASET);
-    ili9341_display_write_data_16bit(Xpos);
-    ili9341_display_write_index(ILI9341_CMD_PASET);
-    ili9341_display_write_data_16bit(Ypos);
-    ili9341_display_write_index(ILI9341_CMD_RAMWR);
+    ILI9341_WriteCmd(ILI9341_CMD_CASET);
+    ILI9341_WriteData8((uint8_t)(x_start >> 8U));
+    ILI9341_WriteData8((uint8_t)(x_start & 0xFFU));
+    ILI9341_WriteData8((uint8_t)(x_end   >> 8U));
+    ILI9341_WriteData8((uint8_t)(x_end   & 0xFFU));
+
+    ILI9341_WriteCmd(ILI9341_CMD_PASET);
+    ILI9341_WriteData8((uint8_t)(y_start >> 8U));
+    ILI9341_WriteData8((uint8_t)(y_start & 0xFFU));
+    ILI9341_WriteData8((uint8_t)(y_end   >> 8U));
+    ILI9341_WriteData8((uint8_t)(y_end   & 0xFFU));
+
+    ILI9341_WriteCmd(ILI9341_CMD_RAMWR);
 }
 
-/** ====================================
- * @brief 设置显示区域
- * 
- * @param xStart 
- * @param yStart 
- * @param xEnd 
- * @param yEnd 
- * ==================================== */
-void ili9341_display_set_region(uint16_t xStart, uint16_t yStart, uint16_t xEnd, uint16_t yEnd)
+/*
+ * 函数: ILI9341_DrawPixel
+ * 功能: 在指定坐标绘制一个像素
+ *
+ * 实现: 设置 1×1 窗口区域后写入一个 RGB565 像素
+ * 注意: 逐个像素绘制效率很低, 仅用于测试或画点
+ */
+void ILI9341_DrawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-    ili9341_display_write_index(ILI9341_CMD_CASET);
-    ili9341_display_write_data_16bit(xStart);
-    ili9341_display_write_data_16bit(xEnd);
-    ili9341_display_write_index(ILI9341_CMD_PASET);
-    ili9341_display_write_data_16bit(yStart);
-    ili9341_display_write_data_16bit(yEnd);
-    ili9341_display_write_index(ILI9341_CMD_RAMWR);
-}
-
-/** ====================================
- * @brief ILI9341 初始化
- * 
- * ==================================== */
-void ili9341_display_init(void)
-{
-
-    ili9341_display_pin_init();
-    ili9341_display_hardware_reset();
-
-    // 初始化命令序列（宏定义替换硬编码，功能完全不变）
-    ili9341_display_write_index(ILI9341_CMD_SLPOUT); 
-    ili9341_display_write_data_8bit(ILI9341_SLPOUT_PARAM);
-    ili9341_display_delay(120);  // 唤醒后需等待120ms
-
-    ili9341_display_write_index(ILI9341_CMD_CF); 
-    ili9341_display_write_data_8bit(ILI9341_CF_PARAM1); 
-    ili9341_display_write_data_8bit(ILI9341_CF_PARAM2); 
-    ili9341_display_write_data_8bit(ILI9341_CF_PARAM3);
-
-    ili9341_display_write_index(ILI9341_CMD_ED); 
-    ili9341_display_write_data_8bit(ILI9341_ED_PARAM1); 
-    ili9341_display_write_data_8bit(ILI9341_ED_PARAM2); 
-    ili9341_display_write_data_8bit(ILI9341_ED_PARAM3); 
-    ili9341_display_write_data_8bit(ILI9341_ED_PARAM4);
-
-    ili9341_display_write_index(ILI9341_CMD_E8); 
-    ili9341_display_write_data_8bit(ILI9341_E8_PARAM1); 
-    ili9341_display_write_data_8bit(ILI9341_E8_PARAM2); 
-    ili9341_display_write_data_8bit(ILI9341_E8_PARAM3);
-
-    ili9341_display_write_index(ILI9341_CMD_F6); 
-    ili9341_display_write_data_8bit(ILI9341_F6_PARAM1); 
-    ili9341_display_write_data_8bit(ILI9341_F6_PARAM2); 
-    ili9341_display_write_data_8bit(ILI9341_F6_PARAM3);
-
-    ili9341_display_write_index(ILI9341_CMD_CB); 
-    ili9341_display_write_data_8bit(ILI9341_CB_PARAM1); 
-    ili9341_display_write_data_8bit(ILI9341_CB_PARAM2); 
-    ili9341_display_write_data_8bit(ILI9341_CB_PARAM3); 
-    ili9341_display_write_data_8bit(ILI9341_CB_PARAM4); 
-    ili9341_display_write_data_8bit(ILI9341_CB_PARAM5);
-
-    ili9341_display_write_index(ILI9341_CMD_F7); 
-    ili9341_display_write_data_8bit(ILI9341_F7_PARAM);
-
-    ili9341_display_write_index(ILI9341_CMD_EA); 
-    ili9341_display_write_data_8bit(ILI9341_EA_PARAM1); 
-    ili9341_display_write_data_8bit(ILI9341_EA_PARAM2);
-
-    ili9341_display_write_index(ILI9341_CMD_C0); 
-    ili9341_display_write_data_8bit(ILI9341_C0_PARAM);
-
-    ili9341_display_write_index(ILI9341_CMD_C1); 
-    ili9341_display_write_data_8bit(ILI9341_C1_PARAM);
-
-    ili9341_display_write_index(ILI9341_CMD_C5); 
-    ili9341_display_write_data_8bit(ILI9341_C5_PARAM1); 
-    ili9341_display_write_data_8bit(ILI9341_C5_PARAM2);
-
-    ili9341_display_write_index(ILI9341_CMD_C7); 
-    ili9341_display_write_data_8bit(ILI9341_C7_PARAM);
-
-    ili9341_display_write_index(ILI9341_CMD_PIXFMT); 
-    ili9341_display_write_data_8bit(ILI9341_PIXFMT_16BIT);
-    
-    ili9341_display_delay(1);   // 前置延时：确保像素格式设置完成
-
-    ili9341_display_write_index(ILI9341_CMD_MADCTL);
-#if USE_HORIZONTAL == 0  // 正竖屏
-    ili9341_display_write_data_8bit(ILI9341_MADCTL_PORTRAIT_NORMAL);
-#elif USE_HORIZONTAL == 1  // 反竖屏
-    ili9341_display_write_data_8bit(ILI9341_MADCTL_PORTRAIT_REV);  
-#elif USE_HORIZONTAL == 2  // 正横屏
-    ili9341_display_write_data_8bit(ILI9341_MADCTL_LANDSCAPE_NORMAL);
-#elif USE_HORIZONTAL == 3  // 反横屏
-    ili9341_display_write_data_8bit(ILI9341_MADCTL_LANDSCAPE_REV);
-#endif
-    
-    ili9341_display_delay(1);   // 后置延时：确保方向配置生效
-
-    ili9341_display_write_index(ILI9341_CMD_FRMCTR1); 
-    ili9341_display_write_data_8bit(ILI9341_FRMCTR1_PARAM1); 
-    ili9341_display_write_data_8bit(ILI9341_FRMCTR1_PARAM2);
-
-    ili9341_display_write_index(ILI9341_CMD_DFUNCTR); 
-    ili9341_display_write_data_8bit(ILI9341_DFUNCTR_PARAM1); 
-    ili9341_display_write_data_8bit(ILI9341_DFUNCTR_PARAM2);
-
-    ili9341_display_write_index(ILI9341_CMD_GAMMASET); 
-    ili9341_display_write_data_8bit(ILI9341_GAMMASET_PARAM);
-
-    ili9341_display_write_index(ILI9341_CMD_GAMMA_CURV); 
-    ili9341_display_write_data_8bit(ILI9341_GAMMA_CURV_PARAM);
-
-    // 正伽马曲线参数（宏定义化数组元素）
-    ili9341_display_write_index(ILI9341_CMD_PGAMMA);
-    uint8_t e0_data[] = 
+    ILI9341_SetRegion(x, y, x, y);
+    ILI9341_WriteCS(0);
+    ILI9341_WriteDC(1);
     {
-        0x0F, 0x17, 0x14, 0x09, 0x0C, 
-        0x06, 0x43, 0x75, 0x36, 0x08, 
-        0x13, 0x05, 0x10, 0x0B, 0x08
-    };
-    for (int i = 0; i < 15; i++) ili9341_display_write_data_8bit(e0_data[i]);
-
-    // 负伽马曲线参数（宏定义化数组元素）
-    ili9341_display_write_index(ILI9341_CMD_NGAMMA);
-    uint8_t e1_data[] = 
-    {
-        0x00, 0x1F, 0x23, 0x03, 0x0E, 
-        0x04, 0x39, 0x25, 0x4D, 0x06, 
-        0x0D, 0x0B, 0x33, 0x37, 0x0F
-    };
-    for (int i = 0; i < 15; i++) ili9341_display_write_data_8bit(e1_data[i]);
-
-    ili9341_display_write_index(ILI9341_CMD_DISPON); // 显示开启
+        uint8_t high = (uint8_t)(color >> 8U);
+        uint8_t low  = (uint8_t)(color & 0xFFU);
+        ILI9341_SPI_Transmit(&high, 1);
+        ILI9341_SPI_Transmit(&low, 1);
+    }
+    ILI9341_WriteCS(1);
 }
 
-/** ====================================
- * @brief 在指定位置绘制一个点
- * 
- * @param x 
- * @param y 
- * @param color 
- * ==================================== */
-void ili9341_display_drawPoint(uint16_t x, uint16_t y, uint16_t color)
+/*
+ * 函数: ILI9341_Clear
+ * 功能: 用指定颜色填充整个屏幕
+ *
+ * 实现:
+ *   1. 设置全屏窗口区域
+ *   2. 创建一个 64 像素的颜色块
+ *   3. 循环发送直到铺满全部 240×320=76800 个像素
+ *
+ * 优化: 使用固定颜色块 + 循环发送, 避免逐像素操作, 提高清屏速度
+ */
+void ILI9341_Clear(uint16_t color)
 {
-    ili9341_display_set_xy(x, y);
-    ili9341_display_write_data_16bit(color);
-}
+    const uint32_t total_pixels = (uint32_t)ILI9341_WIDTH * ILI9341_HEIGHT;
+    const uint32_t chunk_pixels = 64U;
 
-/** ====================================
- * @brief 指定颜色清屏
- * 
- * @param color 
- * ==================================== */
-void ili9341_display_clear(uint16_t color)
-{
-    // 1. 计算屏幕总像素数
-    const uint32_t total_pixels = (uint32_t)X_MAX_PIXEL * Y_MAX_PIXEL;
-    
-    // 2. 设置全屏显示区域
-    ili9341_display_set_region(0, 0, X_MAX_PIXEL - 1, Y_MAX_PIXEL - 1);
-    
-    // 3. 准备一个临时大小的临时缓冲区（减少内存占用，复用块写逻辑）
-    #define CLEAR_CHUNK_SIZE 1024  // 每次传输1024个像素（2048字节）
-    uint16_t color_chunk[CLEAR_CHUNK_SIZE]; 
-    
-    // 4. 填充缓冲区为目标颜色
-    for (uint32_t i = 0; i < CLEAR_CHUNK_SIZE; i++) 
+    ILI9341_SetRegion(0, 0, ILI9341_WIDTH - 1, ILI9341_HEIGHT - 1);
+
+    uint16_t color_chunk[64];
+    for (uint32_t i = 0; i < chunk_pixels; i++)
     {
         color_chunk[i] = color;
     }
-    
-    // 5. 分块发送全屏数据（复用已有的批量传输函数）
+
     uint32_t remaining = total_pixels;
-    while (remaining > 0) 
+    ILI9341_WriteCS(0);
+    ILI9341_WriteDC(1);
+
+    while (remaining > 0)
     {
-        uint32_t send_len = (remaining > CLEAR_CHUNK_SIZE) ? CLEAR_CHUNK_SIZE : remaining;
-        ili9341_display_write_data_bulk_16bit(color_chunk, send_len);
+        uint32_t send_len = (remaining > chunk_pixels) ? chunk_pixels : remaining;
+        uint8_t spi_buf[128];
+        for (uint32_t i = 0; i < send_len; i++)
+        {
+            spi_buf[2U * i]     = (uint8_t)(color_chunk[i] >> 8U);
+            spi_buf[2U * i + 1] = (uint8_t)(color_chunk[i] & 0xFFU);
+        }
+        ILI9341_SPI_Transmit(spi_buf, (uint16_t)(send_len * 2U));
         remaining -= send_len;
     }
+
+    ILI9341_WriteCS(1);
+}
+
+/*
+ * 函数: ILI9341_HardwareReset
+ * 功能: 硬件复位 ILI9341 (拉低 RST 100ms → 释放 50ms)
+ *
+ * 复位时序要求:
+ *   - RST 低电平保持至少 10us
+ *   - 释放后需等待 120ms 以上 (退出睡眠模式)
+ *   这里的延时留足了余量
+ */
+void ILI9341_HardwareReset(void)
+{
+    ILI9341_WriteRST(0);
+    ILI9341_Delay(100);
+    ILI9341_WriteRST(1);
+    ILI9341_Delay(50);
+}
+
+/* ==================================================================== */
+/*               初始化命令序列                                          */
+/* ==================================================================== */
+
+/*
+ * ILI9341 初始化命令序列结构体:
+ *   cmd:         命令字节
+ *   params:      参数字节数组
+ *   param_count: 参数个数
+ */
+typedef struct {
+    uint8_t cmd;
+    const uint8_t *params;
+    uint8_t param_count;
+} ILI9341_InitCmd_t;
+
+/*
+ * 电源/时序初始化命令序列:
+ *   这些命令由 ILI9341 数据手册提供, 用于配置内部电源、VCOM、时序等。
+ *   不同厂家/批次的 ILI9341 模组可能有不同的推荐值,
+ *   以下是针对本项目使用的屏幕模组调试出的稳定参数。
+ */
+static const ILI9341_InitCmd_t s_init_sequence[] = {
+    {0xCFU, (const uint8_t[]){0x00U, 0xC1U, 0x30U}, 3},   /* 电源控制 B */
+    {0xEDU, (const uint8_t[]){0x64U, 0x03U, 0x12U, 0x81U}, 4}, /* 电源序列 */
+    {0xE8U, (const uint8_t[]){0x85U, 0x11U, 0x78U}, 3},   /* 驱动时序 A */
+    {0xF6U, (const uint8_t[]){0x01U, 0x30U, 0x00U}, 3},   /* 接口控制 */
+    {0xCBU, (const uint8_t[]){0x39U, 0x2CU, 0x00U, 0x34U, 0x05U}, 5}, /* 电源控制 A */
+    {0xF7U, (const uint8_t[]){0x20U}, 1},                  /* PUMP 控制 */
+    {0xEAU, (const uint8_t[]){0x00U, 0x00U}, 2},           /* 电源序列参数 */
+    {0xC0U, (const uint8_t[]){0x20U}, 1},                   /* 电源控制: BT = 0x20 */
+    {0xC1U, (const uint8_t[]){0x11U}, 1},                   /* VCOM 控制 */
+    {0xC5U, (const uint8_t[]){0x31U, 0x3CU}, 2},           /* VCOM 设置 */
+    {0xC7U, (const uint8_t[]){0xA9U}, 1},                   /* VCOM 偏移 */
+};
+
+/* 正伽马校正曲线 (15 个参数, 控制 R/G/B 各灰阶的电压) */
+static const uint8_t s_gamma_pos[] = {
+    0x0FU, 0x17U, 0x14U, 0x09U, 0x0CU,
+    0x06U, 0x43U, 0x75U, 0x36U, 0x08U,
+    0x13U, 0x05U, 0x10U, 0x0BU, 0x08U
+};
+
+/* 负伽马校正曲线 (15 个参数) */
+static const uint8_t s_gamma_neg[] = {
+    0x00U, 0x1FU, 0x23U, 0x03U, 0x0EU,
+    0x04U, 0x39U, 0x25U, 0x4DU, 0x06U,
+    0x0DU, 0x0BU, 0x33U, 0x37U, 0x0FU
+};
+
+/*
+ * 函数: ILI9341_Init
+ * 功能: ILI9341 完整初始化序列
+ *
+ * 初始化步骤:
+ *   1. 引脚初始化 + 硬件复位
+ *   2. 退出睡眠模式 (SLPOUT) + 等待 120ms
+ *   3. 发送电源/时序初始化命令序列
+ *   4. 设置像素格式为 16 位 RGB565 (PIXFMT=0x55)
+ *   5. 设置内存访问控制 (屏幕方向)
+ *   6. 帧速率控制
+ *   7. 显示功能控制
+ *   8. 伽马校正
+ *   9. 显示开启 (DISPON)
+ */
+void ILI9341_Init(void)
+{
+    /* 引脚初始化 + 硬件复位 */
+    ILI9341_PinInit();
+    ILI9341_HardwareReset();
+
+    /* 退出睡眠模式 */
+    ILI9341_WriteCmd(ILI9341_CMD_SLPOUT);
+    ILI9341_Delay(120);
+
+    /* 发送电源/时序初始化命令序列 */
+    for (size_t i = 0; i < (sizeof(s_init_sequence) / sizeof(s_init_sequence[0])); i++)
+    {
+        ILI9341_WriteCmd(s_init_sequence[i].cmd);
+        for (uint8_t j = 0; j < s_init_sequence[i].param_count; j++)
+        {
+            ILI9341_WriteData8(s_init_sequence[i].params[j]);
+        }
+    }
+
+    /* 像素格式: 16位 RGB565 */
+    ILI9341_WriteCmd(ILI9341_CMD_PIXFMT);
+    ILI9341_WriteData8(0x55U);
+    ILI9341_Delay(1);
+
+    /* 内存访问控制 (屏幕方向) */
+    ILI9341_WriteCmd(ILI9341_CMD_MADCTL);
+#if ILI9341_DISPLAY_ORIENTATION == 0
+    ILI9341_WriteData8(ILI9341_MADCTL_PORTRAIT_NORMAL);
+#elif ILI9341_DISPLAY_ORIENTATION == 1
+    ILI9341_WriteData8(ILI9341_MADCTL_PORTRAIT_REV);
+#elif ILI9341_DISPLAY_ORIENTATION == 2
+    ILI9341_WriteData8(ILI9341_MADCTL_LANDSCAPE_NORMAL);
+#elif ILI9341_DISPLAY_ORIENTATION == 3
+    ILI9341_WriteData8(ILI9341_MADCTL_LANDSCAPE_REV);
+#endif
+    ILI9341_Delay(1);
+
+    /* 帧速率控制 */
+    ILI9341_WriteCmd(0xB1U);
+    ILI9341_WriteData8(0x00U);
+    ILI9341_WriteData8(0x18U);
+
+    /* 显示功能控制 */
+    ILI9341_WriteCmd(0xB4U);
+    ILI9341_WriteData8(0x00U);
+    ILI9341_WriteData8(0x00U);
+
+    /* 伽马校正 */
+    ILI9341_WriteCmd(0xF2U);
+    ILI9341_WriteData8(0x00U);
+
+    ILI9341_WriteCmd(0x26U);
+    ILI9341_WriteData8(0x01U);
+
+    ILI9341_WriteCmd(0xE0U);
+    for (int i = 0; i < 15; i++)
+    {
+        ILI9341_WriteData8(s_gamma_pos[i]);
+    }
+
+    ILI9341_WriteCmd(0xE1U);
+    for (int i = 0; i < 15; i++)
+    {
+        ILI9341_WriteData8(s_gamma_neg[i]);
+    }
+
+    /* 显示开启 */
+    ILI9341_WriteCmd(ILI9341_CMD_DISPON);
 }

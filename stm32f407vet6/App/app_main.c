@@ -13,9 +13,9 @@ void app_main()
     log_info("sys", "OV7670 Demo");
     log_info("sys", "Boot Count: %d", BOOTCOUNT_Get());
 
-    ili9341_display_init();
+    ILI9341_Init();
 
-    ili9341_display_clear(ILI9341_BLUE);
+    ILI9341_Clear(ILI9341_COLOR_BLUE);
     printf("lcd init finished\r\n");
     
     xTaskCreate(loop, "loop", 256 * 1, NULL, 1, &loopTaskHandle);

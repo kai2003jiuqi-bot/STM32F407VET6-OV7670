@@ -45,8 +45,11 @@
 #include "tim.h"
 #include "gpio.h"
 #include "log.h"
+#include "FreeRTOS.h"
+#include "queue.h"
 #include <string.h>
 
+// 全局变量
 uint8_t capture_data[OV7670_WIDTH * OV7670_HEIGHT * 2]; // 存储捕获的一帧图像
 
 static uint8_t OV7670_SCCB_Write(uint8_t regAddr, uint8_t data);
@@ -138,63 +141,9 @@ void OV7670_Stop(void)
  */
 void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
 {
-    const uint16_t *src = (const uint16_t *)capture_data;
-    uint16_t row_buf[320];               // 640B: 输出行缓冲
-    uint16_t row0[OV7670_WIDTH];         // 320B: 当前输入行
-    uint16_t row1[OV7670_WIDTH];         // 320B: 下一输入行
-
-    ILI9341_SetRegion(0, 0, 319, 239);
-
-    for (int sy = 0; sy < OV7670_HEIGHT; sy++) // sy:source y 行索引
-    {
-        /* ---- 复制当前行（防止DMA写入导致数据不一致） ---- */
-        memcpy(row0, &src[sy * OV7670_WIDTH], OV7670_WIDTH * sizeof(uint16_t));
-
-        /* ================== 输出行 A (dy = sy*2) ================== */
-        /* 偶数行：仅水平插值 */
-        for (int dx = 0; dx < 320; dx++)    
-        {
-            int sx = dx >> 1;  // sx:source x 列索引
-            uint16_t p = row0[sx];
-            if (dx & 1)  /* 奇数列：与右侧像素水平平均 */
-            {
-                p = (sx + 1 < OV7670_WIDTH)
-                        ? RGB565_Avg2(p, row0[sx + 1])
-                        : p;
-            }
-            row_buf[dx] = p;
-        }
-        ILI9341_WritePixels(row_buf, 320);
-
-        /* ================== 输出行 B (dy = sy*2 + 1) ================== */
-        /* 奇数行：水平 + 垂直双线性插值 */
-        if (sy + 1 < OV7670_HEIGHT)
-        {
-            memcpy(row1, &src[(sy + 1) * OV7670_WIDTH],
-                   OV7670_WIDTH * sizeof(uint16_t));
-
-            for (int dx = 0; dx < 320; dx++)
-            {
-                int sx = dx >> 1;
-                if (dx & 1)
-                {
-                    /* 四角双线性平均 */
-                    uint16_t tr = (sx + 1 < OV7670_WIDTH)
-                                      ? row0[sx + 1] : row0[sx];
-                    uint16_t br = (sx + 1 < OV7670_WIDTH)
-                                      ? row1[sx + 1] : row1[sx];
-                    row_buf[dx] = RGB565_Avg4(row0[sx], tr, row1[sx], br);
-                }
-                else
-                {
-                    /* 垂直平均 */
-                    row_buf[dx] = RGB565_Avg2(row0[sx], row1[sx]);
-                }
-            }
-        }
-        /* 最后一行无下一行可插值，直接复用 row_buf（当前仍为行A数据） */
-        ILI9341_WritePixels(row_buf, 320);
-    }
+    extern xQueueHandle OV7670QueueHandle;
+    uint8_t val = 1;
+    xQueueSendFromISR(OV7670QueueHandle, &val, NULL);
 }
 
 /* ==================================================================== */

@@ -320,7 +320,7 @@ const uint8_t OV7670_reg[][2] =
 #endif
   /* FPS */
 //{OV7670_REG_DBLV,             0x4a},         // PLL  x4
-  {OV7670_REG_CLKRC,            0x04},         // Pre-scalar = XCLK/5 (QR项目验证值)
+  {OV7670_REG_CLKRC,            0x02},         // Pre-scalar = XCLK/5 (QR项目验证值)
   /* Others */
   {OV7670_REG_MVFP,             0x31},         // Mirror flip
 //{OV7670_REG_COM17,            0x08},         // Test screen with color bars

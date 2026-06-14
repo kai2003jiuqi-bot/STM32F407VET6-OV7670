@@ -48,9 +48,12 @@ static void vofa_send_jpg(int img_id, size_t jpg_len)
     int hlen = snprintf(header, sizeof(header),
                         "image:%d,%d,-1,-1,%d\n",
                         img_id, (int)jpg_len, Format_JPG);
-    HAL_UART_Transmit(&huart1, (uint8_t *)header, hlen, 1000);
-    HAL_UART_Transmit(&huart1, s_jpeg_buf, jpg_len, 5000);
-    printf("\r\n");
+
+    /* 合并 header + JPEG 到 s_jpeg_buf 头部，一次发送 */
+    memmove(s_jpeg_buf + hlen, s_jpeg_buf, jpg_len);
+    memcpy(s_jpeg_buf, header, hlen);
+    // HAL_UART_Transmit(&huart1, s_jpeg_buf, hlen + jpg_len, 0xFFFF);
+    HAL_UART_Transmit_IT(&huart1, s_jpeg_buf, hlen + jpg_len);
 }
 
 /* ==================================================================== */
@@ -78,7 +81,6 @@ void OV7670_Task(void *p)
     {
         xQueueReceive(OV7670QueueHandle, &dummy, portMAX_DELAY);
 
-        #if 0
         rgb565_to_rgb888((const uint16_t *)capture_data, s_rgb888,
                          OV7670_WIDTH * OV7670_HEIGHT);
 
@@ -90,7 +92,6 @@ void OV7670_Task(void *p)
             vofa_send_jpg(1, s_jpeg_len);
         }
 
-        #else
         const uint16_t *src = (const uint16_t *)capture_data;
         uint16_t row_buf[320];               // 640B: 输出行缓冲
         uint16_t row0[OV7670_WIDTH];         // 320B: 当前输入行
@@ -148,6 +149,5 @@ void OV7670_Task(void *p)
             /* 最后一行无下一行可插值，直接复用 row_buf（当前仍为行A数据） */
             ILI9341_WritePixels(row_buf, 320);
         }
-        #endif
     }
 }

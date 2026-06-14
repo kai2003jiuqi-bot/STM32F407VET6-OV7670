@@ -88,18 +88,14 @@ static HAL_StatusTypeDef SCCB_Read(uint8_t regAddr, uint8_t *data);
 static uint8_t isFrameCaptured(void);
 static void OV7670_DELAY(uint32_t time);
 static void XCLK_Start(void);
-static void XCLK_Stop(void); 
+static void XCLK_Stop(void);
+static void OV7670_w_pwdn(uint8_t value);
+static void OV7670_w_rst(void);
 
 void OV7670_Init(void)
 {
-    /* PWDN to LOW */
-    HAL_GPIO_WritePin(OV7670_GPIO_PORT_PWDN, OV7670_GPIO_PIN_PWDN, GPIO_PIN_RESET);
-    /* RET pin to LOW */
-    HAL_GPIO_WritePin(OV7670_GPIO_PORT_RET, OV7670_GPIO_PIN_RET, GPIO_PIN_RESET);
-    OV7670_DELAY(100);
-    /* RET pin to HIGH */
-    HAL_GPIO_WritePin(OV7670_GPIO_PORT_RET, OV7670_GPIO_PIN_RET, GPIO_PIN_SET);
-    OV7670_DELAY(100);
+    OV7670_w_pwdn(0);
+    OV7670_w_rst();
     /* Start camera XLK signal to be able to do initialization */
     XCLK_Start();
 
@@ -272,6 +268,20 @@ static uint8_t isFrameCaptured(void)
 void OV7670_DELAY(uint32_t time)
 {
     HAL_Delay(time);
+}
+
+static void OV7670_w_pwdn(uint8_t value)
+{
+    HAL_GPIO_WritePin(OV7670_PWDN_GPIO_Port, OV7670_PWDN_Pin,
+                      value ? GPIO_PIN_SET : GPIO_PIN_RESET);
+}
+
+static void OV7670_w_rst(void)
+{
+    HAL_GPIO_WritePin(OV7670_RST_GPIO_Port, OV7670_RST_Pin, GPIO_PIN_RESET);
+    OV7670_DELAY(50);
+    HAL_GPIO_WritePin(OV7670_RST_GPIO_Port, OV7670_RST_Pin, GPIO_PIN_SET);
+    OV7670_DELAY(50);
 }
 
 static void XCLK_Start(void)  

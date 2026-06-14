@@ -27,7 +27,6 @@
 
 #define OV7670_SCCB_ADDR              (0x42U)
 
-
 #define OV7670_REG_GAIN                (0x0U)   /* Def: 0x0; R/W: RW; AGC – Gain control gain setting */
 #define OV7670_REG_BLUE                (0x1U)   /* Def: 0x80; R/W: RW; AWB – Blue channel gain setting */
 #define OV7670_REG_RED                 (0x2U)   /* Def: 0x80; R/W: RW; AWB – Red channel gain setting */

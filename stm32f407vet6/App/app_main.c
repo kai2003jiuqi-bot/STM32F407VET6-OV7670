@@ -10,6 +10,7 @@ void loop(void *p);
 
 void app_main()
 {
+    printf("\r\n\r\n\r\n\r\n\r\n\r\n\r\n");
     log_info("sys", "OV7670 Demo");
     log_info("sys", "Boot Count: %d", BOOTCOUNT_Get());
 

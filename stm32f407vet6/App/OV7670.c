@@ -36,18 +36,10 @@
         (ov_buf_addr + (OV7670_BUFFER_SIZE)/ 2U) : (uint32_t)buffer)
 #define OV7670_RESET_BUFFER_ADDR()    (uint32_t)buffer
 
-#define OV7670_START_XLK(htim, channel)\
-        do{SET_BIT(htim->Instance->CCER, (0x1UL << channel));\
-        SET_BIT(htim->Instance->CR1, TIM_CR1_CEN);}while(0)
-
-#define OV7670_STOP_XLK(htim, channel)\
-        do{CLEAR_BIT(htim->Instance->CCER, (0x1UL << channel));\
-        CLEAR_BIT(htim->Instance->CR1, TIM_CR1_CEN);}while(0)
+static void XCLK_Start(void)  { TIM5->CCER |= TIM_CCER_CC3E; TIM5->CR1 |= TIM_CR1_CEN; }
+static void XCLK_Stop(void)   { TIM5->CCER &= ~TIM_CCER_CC3E; TIM5->CR1 &= ~TIM_CR1_CEN; }
 
 #else
-/* For whole-size snapshot buffer */
-#define OV7670_BUFFER_SIZE             (OV7670_FRAME_SIZE_BYTES)
-#define OV7670_DMA_DATA_LEN            (OV7670_FRAME_SIZE_WORDS)
 #endif
 
 const uint8_t OV7670_reg[][2] =
@@ -76,13 +68,6 @@ const uint8_t OV7670_reg[][2] =
   {OV7670_REG_VREF,             0x0a},         // VREF (VSTART_LOW = 2, VSTOP_LOW = 2)
   /* Color matrix coefficient */
 #if 0
-  {OV7670_REG_MTX1,             0xb3},
-  {OV7670_REG_MTX2,             0xb3},
-  {OV7670_REG_MTX3,             0x00},
-  {OV7670_REG_MTX4,             0x3d},
-  {OV7670_REG_MTX5,             0xa7},
-  {OV7670_REG_MTX6,             0xe4},
-  {OV7670_REG_MTXS,             0x9e},
 #else
   {OV7670_REG_MTX1,             0x80},
   {OV7670_REG_MTX2,             0x80},
@@ -92,12 +77,6 @@ const uint8_t OV7670_reg[][2] =
   {OV7670_REG_MTX6,             0x80},
   {OV7670_REG_MTXS,             0x9E},
 #endif
-//{OV7670_REG_COM8,             0x84},
-//{OV7670_REG_COM9,             0x0a},         // AGC Ceiling = 2x
-//{0x5FU,                       0x2f},         // AWB B Gain Range (empirically decided)
-        // without this bright scene becomes yellow (purple). might be because of color matrix
-//{0x60U,                       0x98},         // AWB R Gain Range (empirically decided)
-//{0x61U,                       0x70},         // AWB G Gain Range (empirically decided)
   {OV7670_REG_COM16,            0x38},         // edge enhancement, de-noise, AWG gain enabled
   /* gamma curve */
 #if 1
@@ -118,23 +97,6 @@ const uint8_t OV7670_reg[][2] =
   {OV7670_REG_GAM15,            244},
   {OV7670_REG_SLOP,             16},
 #else
-  /* gamma = 1 */
-  {OV7670_REG_GAM1,             4},
-  {OV7670_REG_GAM2,             8},
-  {OV7670_REG_GAM3,             16},
-  {OV7670_REG_GAM4,             32},
-  {OV7670_REG_GAM5,             40},
-  {OV7670_REG_GAM6,             48},
-  {OV7670_REG_GAM7,             56},
-  {OV7670_REG_GAM8,             64},
-  {OV7670_REG_GAM9,             72},
-  {OV7670_REG_GAM10,            80},
-  {OV7670_REG_GAM11,            96},
-  {OV7670_REG_GAM12,            112},
-  {OV7670_REG_GAM13,            144},
-  {OV7670_REG_GAM14,            176},
-  {OV7670_REG_GAM15,            208},
-  {OV7670_REG_SLOP,             64},
 #endif
   /* FPS */
 //{OV7670_REG_DBLV,             0x4a},         // PLL  x4
@@ -194,7 +156,7 @@ void OV7670_Init(void)
     OV7670_DELAY(100);
 
     /* Start camera XLK signal to be able to do initialization */
-    HAL_TIM_OC_Start(&htim5, TIM_CHANNEL_3);
+    XCLK_Start();
 
     /* Do camera reset */
     SCCB_Write(OV7670_REG_COM7, 0x80);
@@ -225,7 +187,7 @@ void OV7670_Init(void)
         log_info("OV7670", "NOT DETECTED, skipping config");
     }
     /* Stop camera XLK signal */
-    HAL_TIM_OC_Stop(&htim5, TIM_CHANNEL_3);
+    XCLK_Stop();
 
     /* Initialize buffer address */
     ov_buf_addr = (uint32_t) buffer;
@@ -243,7 +205,7 @@ void OV7670_Start(void)
     ov_state = BUSY;
     __enable_irq();
     /* Start camera XLK signal to capture the image data */
-    HAL_TIM_OC_Start(&htim5, TIM_CHANNEL_3);
+    XCLK_Start();
     /* Start DCMI capturing */
     HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, ov_buf_addr, OV7670_DMA_DATA_LEN);
 }
@@ -255,7 +217,7 @@ void OV7670_Stop(void)
     HAL_DCMI_Stop(&hdcmi);
     ov_state = READY;
     __enable_irq();
-    HAL_TIM_OC_Stop(&htim5, TIM_CHANNEL_3);
+    XCLK_Stop();
 }
 
 uint8_t OV7670_isDriverBusy(void)
@@ -291,7 +253,7 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
             /* Disable DCMI Camera interface */
             HAL_DCMI_Stop(hdcmi);
             /* Stop camera XLK signal until captured image data is drawn */
-            //HAL_TIM_OC_Stop(&htim5, TIM_CHANNEL_3);
+            //XCLK_Stop();
             /* Reset line counter */
             lineCnt = 0U;
 
@@ -310,8 +272,8 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
 
         if (((lineCnt + 1U) % OV7670_LINES_IN_CHUNK) == 0U)
         {
-            /* 直接写到 LCD (MV=1: CASET=行, PASET=列, 交换x/y) */
-            ILI9341_SetRegion(lineCnt, 0U, lineCnt, OV7670_WIDTH - 1U);
+            /* 直接写到 LCD */
+            ILI9341_SetRegion(0U, lineCnt, OV7670_WIDTH - 1U, lineCnt);
             ILI9341_WritePixels((const uint16_t *)ov_buf_addr, OV7670_WIDTH);
 
             /* If driver is still working */

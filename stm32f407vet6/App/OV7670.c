@@ -13,27 +13,26 @@
 #include "tim.h"
 #include "gpio.h"
 #include "log.h"
+#include <string.h>
 
 #define OV7670_WIDTH                  160U
 #define OV7670_HEIGHT                 120U
 #define OV7670_SCCB_ADDR              0x42U
 
-static volatile uint32_t   ov_buf_addr;
-static volatile uint32_t   ov_line_cnt;
+static uint8_t capture_data[OV7670_WIDTH * OV7670_HEIGHT * 2];
 
-static uint8_t buffer[OV7670_WIDTH * OV7670_HEIGHT * 2];
 static uint8_t OV7670_SCCB_Write(uint8_t regAddr, uint8_t data);
 static uint8_t OV7670_SCCB_Read(uint8_t regAddr, uint8_t *data);
 static void OV7670_Delay(uint32_t time);
 static void OV7670_XLK_Enable(void);
 static void OV7670_XLK_Disable(void);
-static void OV7670_w_pwdn(uint8_t value);
-static void OV7670_w_rst(void);
+static void OV7670_W_PWDN(uint8_t value);
+static void OV7670_W_RST(void);
 
 void OV7670_Init(void)
 {
-    OV7670_w_pwdn(0);
-    OV7670_w_rst();
+    OV7670_W_PWDN(0);
+    OV7670_W_RST();
     /* Start camera XLK signal to be able to do initialization */
     OV7670_XLK_Enable();
 
@@ -66,36 +65,33 @@ void OV7670_Init(void)
     /* Stop camera XLK signal */
     OV7670_XLK_Disable();
 
-    /* Initialize buffer address */
-    ov_buf_addr = (uint32_t) buffer;
+    /* Initialize capture_data address */
 }
 
 void OV7670_Start(void)
 {
-    __disable_irq();
-    /* Reset buffer address */
-    ov_buf_addr = (uint32_t)buffer;
-    /* Reset line counter */
-    ov_line_cnt = 0U;
-    __enable_irq();
     /* Start camera XLK signal to capture the image data */
     OV7670_XLK_Enable();
     /* Start DCMI capturing */
-    HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, ov_buf_addr, (OV7670_WIDTH * OV7670_HEIGHT / 2U));
+    HAL_DCMI_Start_DMA( &hdcmi, 
+                        DCMI_MODE_CONTINUOUS, 
+                        (uint32_t)capture_data, 
+                        OV7670_WIDTH * OV7670_HEIGHT / 2
+    );
 }
 
 void OV7670_Stop(void)
 {
-    __disable_irq();
     HAL_DCMI_Stop(&hdcmi);
-    __enable_irq();
     OV7670_XLK_Disable();
 }
 
 void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
 {
+    uint8_t buff[OV7670_WIDTH * OV7670_HEIGHT * 2];
+    memcpy(buff, capture_data, sizeof(buff));
     ILI9341_SetRegion(0, 0, OV7670_WIDTH - 1U, OV7670_HEIGHT - 1U);
-    ILI9341_WritePixels((uint16_t*)buffer, OV7670_WIDTH * OV7670_HEIGHT);
+    ILI9341_WritePixels((uint16_t*)buff, OV7670_WIDTH * OV7670_HEIGHT);
 }
 
 /******************************************************************************
@@ -131,13 +127,13 @@ void OV7670_Delay(uint32_t time)
     HAL_Delay(time);
 }
 
-static void OV7670_w_pwdn(uint8_t value)
+static void OV7670_W_PWDN(uint8_t value)
 {
     HAL_GPIO_WritePin(OV7670_PWDN_GPIO_Port, OV7670_PWDN_Pin,
                       value ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
-static void OV7670_w_rst(void)
+static void OV7670_W_RST(void)
 {
     HAL_GPIO_WritePin(OV7670_RST_GPIO_Port, OV7670_RST_Pin, GPIO_PIN_RESET);
     OV7670_Delay(50);

@@ -78,7 +78,6 @@ const uint8_t OV7670_reg[][2] =
 
 /* Peripheral handles (直接使用全局) */
 /* Driver state */
-static uint32_t            ov_mode;
 static volatile uint32_t   ov_buf_addr;
 static volatile uint32_t   ov_line_cnt;
 static volatile uint8_t    ov_state;
@@ -140,8 +139,6 @@ void OV7670_Init(void)
 void OV7670_Start(void)
 {
     __disable_irq();
-    /* Update requested mode */
-    ov_mode = DCMI_MODE_CONTINUOUS;
     /* Reset buffer address */
     ov_buf_addr = (uint32_t)buffer;
     /* Reset line counter */
@@ -201,12 +198,6 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
             /* Reset line counter */
             lineCnt = 0U;
 
-            /* Update state if mode is SNAPSHOT */
-            if (ov_mode == DCMI_MODE_SNAPSHOT)
-            {
-                state = 0;
-                vsync_detected = 0;
-            }
         }
         else
         {

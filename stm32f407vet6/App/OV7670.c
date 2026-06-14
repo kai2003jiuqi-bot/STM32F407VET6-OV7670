@@ -220,3 +220,8 @@ static void OV7670_XLK_Disable(void)
     TIM5->CCER &= ~TIM_CCER_CC3E;
     TIM5->CR1 &= ~TIM_CR1_CEN;
 }
+
+
+void OV7670_Init(void);
+void OV7670_Start(void);
+void OV7670_Stop(void);

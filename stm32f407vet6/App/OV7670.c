@@ -18,13 +18,12 @@
 #define OV7670_HEIGHT                 120U
 #define OV7670_SCCB_ADDR              0x42U
 
-
 static volatile uint32_t   ov_buf_addr;
 static volatile uint32_t   ov_line_cnt;
 static volatile uint8_t    ov_state;
 static uint8_t buffer[OV7670_WIDTH * OV7670_HEIGHT * 2];
-static HAL_StatusTypeDef OV7670_SCCB_Write(uint8_t regAddr, uint8_t data);
-static HAL_StatusTypeDef OV7670_SCCB_Read(uint8_t regAddr, uint8_t *data);
+static uint8_t OV7670_SCCB_Write(uint8_t regAddr, uint8_t data);
+static uint8_t OV7670_SCCB_Read(uint8_t regAddr, uint8_t *data);
 static void OV7670_Delay(uint32_t time);
 static void OV7670_XLK_Enable(void);
 static void OV7670_XLK_Disable(void);
@@ -44,7 +43,7 @@ void OV7670_Init(void)
 
     /* Get camera ID */
     uint8_t buf[4] = {0};
-    HAL_StatusTypeDef ret = OV7670_SCCB_Read(OV7670_REG_VER, buf);
+    uint8_t ret = OV7670_SCCB_Read(OV7670_REG_VER, buf);
     log_info("OV7670", "dev id = 0x%02X (ret=%d)", buf[0], ret);
 
     if (ret == HAL_OK)
@@ -125,13 +124,8 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
         /* If this line is the last line of the frame */
         if (lineCnt == OV7670_HEIGHT - 1U)
         {
-            /* Disable DCMI Camera interface */
             HAL_DCMI_Stop(hdcmi);
-            /* Stop camera XLK signal until captured image data is drawn */
-            //OV7670_XLK_Disable();
-            /* Reset line counter */
             lineCnt = 0U;
-
         }
         else
         {
@@ -155,7 +149,6 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
             }
         }
 
-        /* Update line counter */
         __disable_irq();
         ov_line_cnt = lineCnt;
         ov_state = state;
@@ -168,10 +161,9 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
 /******************************************************************************
  *                              LOCAL FUNCTIONS                               *
  ******************************************************************************/
-
-static HAL_StatusTypeDef OV7670_SCCB_Write(uint8_t regAddr, uint8_t data)
+static uint8_t OV7670_SCCB_Write(uint8_t regAddr, uint8_t data)
 {
-    HAL_StatusTypeDef ret = HAL_ERROR;
+    uint8_t ret = HAL_ERROR;
     for (int i = 0; i < 3; i++)
     {
         ret = HAL_I2C_Mem_Write(&hi2c2, OV7670_SCCB_ADDR, regAddr,
@@ -181,9 +173,9 @@ static HAL_StatusTypeDef OV7670_SCCB_Write(uint8_t regAddr, uint8_t data)
     return ret;
 }
 
-static HAL_StatusTypeDef OV7670_SCCB_Read(uint8_t regAddr, uint8_t *data)
+static uint8_t OV7670_SCCB_Read(uint8_t regAddr, uint8_t *data)
 {
-    HAL_StatusTypeDef ret = HAL_ERROR;
+    uint8_t ret = HAL_ERROR;
     for (int i = 0; i < 3; i++)
     {
         ret = HAL_I2C_Master_Transmit(&hi2c2, OV7670_SCCB_ADDR, &regAddr, 1U, 100U);
@@ -224,4 +216,3 @@ static void OV7670_XLK_Disable(void)
     TIM5->CCER &= ~TIM_CCER_CC3E; 
     TIM5->CR1 &= ~TIM_CR1_CEN; 
 }
-

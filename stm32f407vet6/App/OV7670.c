@@ -15,8 +15,6 @@
  *                               LOCAL MACRO                                  *
  ******************************************************************************/
 
-#define OV7670_USE_DMA_CMSIS          0
-
 #define OV7670_SCCB_ADDR              (0x42U)
 
 #define OV7670_RGB565_BYTES           (2U)
@@ -44,31 +42,6 @@
 #define OV7670_STOP_XLK(htim, channel)\
         do{CLEAR_BIT(htim->Instance->CCER, (0x1UL << channel));\
         CLEAR_BIT(htim->Instance->CR1, TIM_CR1_CEN);}while(0)
-
-#if (OV7670_USE_DMA_CMSIS == 1)
-#define OV7670_DCMI_DMA_START(hdcmi, dstAddr)\
-    do{\
-        WRITE_REG(hdcmi->DMA_Handle->Instance->M0AR, dstAddr);\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_TC_FLAG_INDEX(hdcmi->DMA_Handle));\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_HT_FLAG_INDEX(hdcmi->DMA_Handle));\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_TE_FLAG_INDEX(hdcmi->DMA_Handle));\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_DME_FLAG_INDEX(hdcmi->DMA_Handle));\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_FE_FLAG_INDEX(hdcmi->DMA_Handle));\
-        SET_BIT(hdcmi->DMA_Handle->Instance->CR, DMA_SxCR_EN);\
-        SET_BIT(hdcmi->Instance->CR, DCMI_CR_CAPTURE);\
-    }while(0)
-
-#define OV7670_DCMI_DMA_STOP(hdcmi) \
-    do{CLEAR_BIT(hdcmi->Instance->CR, DCMI_CR_CAPTURE);\
-        CLEAR_BIT(hdcmi->DMA_Handle->Instance->CR, DMA_SxCR_EN);\
-        while (READ_BIT(hdcmi->DMA_Handle->Instance->CR, DMA_SxCR_EN));\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_TC_FLAG_INDEX(hdcmi->DMA_Handle));\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_HT_FLAG_INDEX(hdcmi->DMA_Handle));\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_TE_FLAG_INDEX(hdcmi->DMA_Handle));\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_DME_FLAG_INDEX(hdcmi->DMA_Handle));\
-        __HAL_DMA_CLEAR_FLAG(hdcmi->DMA_Handle, __HAL_DMA_GET_FE_FLAG_INDEX(hdcmi->DMA_Handle));\
-    }while(0)
-#endif
 
 #else
 /* For whole-size snapshot buffer */
@@ -437,33 +410,6 @@ void OV7670_Init(DCMI_HandleTypeDef *hdcmi, I2C_HandleTypeDef *hi2c, TIM_HandleT
 
     /* Initialize buffer address */
     OV7670.buffer_addr = (uint32_t) buffer;
-
-#if (OV7670_USE_DMA_CMSIS == 1)
-    /**************************************************************
-     * DMA post-configuration (moved from HAL_DCMI_Start_DMA() API
-     **************************************************************/
-    /* Enable DCMI by setting DCMIEN bit */
-    SET_BIT(OV7670.hdcmi->Instance->CR, DCMI_CR_ENABLE);
-    /* Configure the DCMI Mode */
-    CLEAR_BIT(OV7670.hdcmi->Instance->CR, DCMI_CR_CM);
-    SET_BIT(OV7670.hdcmi->Instance->CR, DCMI_MODE_CONTINUOUS);
-    /* Disable double bufferization DMA mode */
-    CLEAR_BIT(OV7670.hdcmi->DMA_Handle->Instance->CR, DMA_SxCR_DBM);
-    /* Configure DMA Stream data length */
-    WRITE_REG(OV7670.hdcmi->DMA_Handle->Instance->NDTR, OV7670_DMA_DATA_LEN);
-    /* Configure DMA Stream source address */
-    WRITE_REG(OV7670.hdcmi->DMA_Handle->Instance->PAR, (uint32_t) &hdcmi->Instance->DR);
-    /* Configure DMA Stream destination address */
-    WRITE_REG(OV7670.hdcmi->DMA_Handle->Instance->M0AR, OV7670.buffer_addr);
-    /* Clear all DMA interrupt flags */
-    __HAL_DMA_CLEAR_FLAG(OV7670.hdcmi->DMA_Handle, __HAL_DMA_GET_TC_FLAG_INDEX(OV7670.hdcmi->DMA_Handle));
-    __HAL_DMA_CLEAR_FLAG(OV7670.hdcmi->DMA_Handle, __HAL_DMA_GET_HT_FLAG_INDEX(OV7670.hdcmi->DMA_Handle));
-    __HAL_DMA_CLEAR_FLAG(OV7670.hdcmi->DMA_Handle, __HAL_DMA_GET_TE_FLAG_INDEX(OV7670.hdcmi->DMA_Handle));
-    __HAL_DMA_CLEAR_FLAG(OV7670.hdcmi->DMA_Handle, __HAL_DMA_GET_DME_FLAG_INDEX(OV7670.hdcmi->DMA_Handle));
-    __HAL_DMA_CLEAR_FLAG(OV7670.hdcmi->DMA_Handle, __HAL_DMA_GET_FE_FLAG_INDEX(OV7670.hdcmi->DMA_Handle));
-    /* Enable Common interrupts*/
-    SET_BIT(OV7670.hdcmi->DMA_Handle->Instance->CR, (DMA_IT_TC | DMA_IT_TE | DMA_IT_DME));
-#endif
 }
 
 void OV7670_Start(void)
@@ -482,22 +428,14 @@ void OV7670_Start(void)
     /* Start camera XLK signal to capture the image data */
     OV7670_START_XLK(OV7670.htim, OV7670.tim_ch);
     /* Start DCMI capturing */
-#if (OV7670_USE_DMA_CMSIS == 1)
-    OV7670_DCMI_DMA_START(OV7670.hdcmi, OV7670.buffer_addr);
-#else
     HAL_DCMI_Start_DMA(OV7670.hdcmi, DCMI_MODE_CONTINUOUS, OV7670.buffer_addr, OV7670_DMA_DATA_LEN);
-#endif
 }
 
 void OV7670_Stop(void)
 {
     while(!isFrameCaptured());
     __disable_irq();
-#if (OV7670_USE_DMA_CMSIS == 1)
-    OV7670_DCMI_DMA_STOP(OV7670.hdcmi);
-#else
     HAL_DCMI_Stop(OV7670.hdcmi);
-#endif
     OV7670.state = READY;
     __enable_irq();
     OV7670_STOP_XLK(OV7670.htim, OV7670.tim_ch);
@@ -590,11 +528,7 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
         if (lineCnt == OV7670_HEIGHT - 1U)
         {
             /* Disable DCMI Camera interface */
-#if (OV7670_USE_DMA_CMSIS == 1)
-            OV7670_DCMI_DMA_STOP(OV7670.hdcmi);
-#else
             HAL_DCMI_Stop(OV7670.hdcmi);
-#endif
             /* Stop camera XLK signal until captured image data is drawn */
             //HAL_TIM_OC_Stop(OV7670.htim, OV7670.tim_ch);
             /* Reset line counter */
@@ -628,11 +562,7 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
                 /* Update buffer address with the next half-part */
                 buf_addr = OV7670_SWITCH_BUFFER();
                 /* Capture next line from the snapshot/stream */
-#if (OV7670_USE_DMA_CMSIS == 1)
-                OV7670_DCMI_DMA_START(OV7670.hdcmi, buf_addr);
-#else
                 HAL_DCMI_Start_DMA(OV7670.hdcmi, DCMI_MODE_CONTINUOUS, buf_addr, OV7670_DMA_DATA_LEN);
-#endif
             }
         }
 

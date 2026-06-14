@@ -9,9 +9,6 @@
 #include "log.h"
 #include <string.h>
 
-/* UART 句柄 (用于 VOFA+ 发送) */
-extern UART_HandleTypeDef huart1;
-
 /* ------ 队列句柄 ------ */
 xQueueHandle OV7670QueueHandle = NULL;
 
@@ -55,6 +52,7 @@ static void vofa_send_jpg(int img_id, size_t jpg_len)
                         img_id, (int)jpg_len, Format_JPG);
     HAL_UART_Transmit(&huart1, (uint8_t *)header, hlen, 1000);
     HAL_UART_Transmit(&huart1, s_jpeg_buf, jpg_len, 5000);
+    printf("\r\n\r\n");
 }
 
 /* ==================================================================== */
@@ -82,7 +80,7 @@ void OV7670_Task(void *p)
     {
         xQueueReceive(OV7670QueueHandle, &dummy, portMAX_DELAY);
 
-        /* RGB565 → RGB888 → stb JPEG 编码 → Vofa+ */
+        #if 1
         rgb565_to_rgb888((const uint16_t *)capture_data, s_rgb888,
                          OV7670_WIDTH * OV7670_HEIGHT);
 
@@ -93,5 +91,65 @@ void OV7670_Task(void *p)
         {
             vofa_send_jpg(1, s_jpeg_len);
         }
+
+        #else
+        const uint16_t *src = (const uint16_t *)capture_data;
+        uint16_t row_buf[320];               // 640B: 输出行缓冲
+        uint16_t row0[OV7670_WIDTH];         // 320B: 当前输入行
+        uint16_t row1[OV7670_WIDTH];         // 320B: 下一输入行
+
+        ILI9341_SetRegion(0, 0, 319, 239);
+
+        for (int sy = 0; sy < OV7670_HEIGHT; sy++) // sy:source y 行索引
+        {
+            /* ---- 复制当前行（防止DMA写入导致数据不一致） ---- */
+            memcpy(row0, &src[sy * OV7670_WIDTH], OV7670_WIDTH * sizeof(uint16_t));
+
+            /* ================== 输出行 A (dy = sy*2) ================== */
+            /* 偶数行：仅水平插值 */
+            for (int dx = 0; dx < 320; dx++)    
+            {
+                int sx = dx >> 1;  // sx:source x 列索引
+                uint16_t p = row0[sx];
+                if (dx & 1)  /* 奇数列：与右侧像素水平平均 */
+                {
+                    p = (sx + 1 < OV7670_WIDTH)
+                            ? RGB565_Avg2(p, row0[sx + 1])
+                            : p;
+                }
+                row_buf[dx] = p;
+            }
+            ILI9341_WritePixels(row_buf, 320);
+
+            /* ================== 输出行 B (dy = sy*2 + 1) ================== */
+            /* 奇数行：水平 + 垂直双线性插值 */
+            if (sy + 1 < OV7670_HEIGHT)
+            {
+                memcpy(row1, &src[(sy + 1) * OV7670_WIDTH],
+                    OV7670_WIDTH * sizeof(uint16_t));
+
+                for (int dx = 0; dx < 320; dx++)
+                {
+                    int sx = dx >> 1;
+                    if (dx & 1)
+                    {
+                        /* 四角双线性平均 */
+                        uint16_t tr = (sx + 1 < OV7670_WIDTH)
+                                        ? row0[sx + 1] : row0[sx];
+                        uint16_t br = (sx + 1 < OV7670_WIDTH)
+                                        ? row1[sx + 1] : row1[sx];
+                        row_buf[dx] = RGB565_Avg4(row0[sx], tr, row1[sx], br);
+                    }
+                    else
+                    {
+                        /* 垂直平均 */
+                        row_buf[dx] = RGB565_Avg2(row0[sx], row1[sx]);
+                    }
+                }
+            }
+            /* 最后一行无下一行可插值，直接复用 row_buf（当前仍为行A数据） */
+            ILI9341_WritePixels(row_buf, 320);
+        }
+        #endif
     }
 }

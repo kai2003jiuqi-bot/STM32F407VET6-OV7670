@@ -8,17 +8,9 @@
 #ifndef OV7670_H_
 #define OV7670_H_
 
-/******************************************************************************
- *                                 INCLUDES                                   *
- ******************************************************************************/
-
 #include "main.h"
 #include "gpio.h"
 #include "log.h"
-
-/******************************************************************************
- *                            CONFIGURATION MACRO                             *
- ******************************************************************************/
 
 #define OV7670_WIDTH                             (160U)
 #define OV7670_HEIGHT                            (120U)
@@ -27,7 +19,6 @@
 #define OV7670_STREAM_MODE_BY_LINE               1
 #define OV7670_STREAM_MODE                       OV7670_STREAM_MODE_BY_LINE
 
-/* Delay API */
 #define OV7670_DELAY(ms)                         HAL_Delay(ms)
 
 /* GPIO pin mapping */
@@ -38,9 +29,7 @@
 
 #define OV7670_SCCB_ADDR              (0x42U)
 
-/******************************************************************************
- *                           OV7670 REGISTERS                                 *
- ******************************************************************************/
+
 #define OV7670_REG_GAIN                (0x0U)   /* Def: 0x0; R/W: RW; AGC – Gain control gain setting */
 #define OV7670_REG_BLUE                (0x1U)   /* Def: 0x80; R/W: RW; AWB – Blue channel gain setting */
 #define OV7670_REG_RED                 (0x2U)   /* Def: 0x80; R/W: RW; AWB – Red channel gain setting */
@@ -196,12 +185,5 @@
 extern void OV7670_Init(void);
 extern void OV7670_Start(void);
 extern void OV7670_Stop(void);
-
-#if (OV7670_STREAM_MODE == OV7670_SRTEAM_MODE_BY_FRAME)
-extern void HAL_DCMI_VsyncEventCallback(DCMI_HandleTypeDef *hdcmi);
-extern void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi);
-#else  /* (OV7670_STREAM_MODE == OV7670_STREAM_MODE_BY_LINE) */
-extern void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi);
-#endif /* (OV7670_STREAM_MODE == OV7670_STREAM_MODE_BY_LINE) */
 
 #endif /* OV7670_H_ */

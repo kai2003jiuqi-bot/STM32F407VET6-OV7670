@@ -62,11 +62,11 @@ static void ILI9341_SPI_Transmit(const uint8_t *data, uint16_t len)
  */
 static void ILI9341_WriteCS(uint8_t cs)
 {
-    if (cs == 0)
-    {
-        hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
-        HAL_SPI_Init(&hspi2);
-    }
+    // if (cs == 0)
+    // {
+    //     hspi2.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+    //     HAL_SPI_Init(&hspi2);
+    // }
     HAL_GPIO_WritePin(LCD_CS_GPIO_Port, LCD_CS_Pin,
                       cs ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
@@ -85,7 +85,6 @@ static void ILI9341_WriteRST(uint8_t state)
 
 static void ILI9341_PinInit(void)
 {
-    HAL_GPIO_WritePin(LCD_CS_GPIO_Port, LCD_CS_Pin, GPIO_PIN_SET);
     ILI9341_WriteDC(1);
     ILI9341_WriteRST(1);
 }

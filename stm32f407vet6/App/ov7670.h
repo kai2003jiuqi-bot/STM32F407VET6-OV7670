@@ -192,58 +192,10 @@
 #define OV7670_REG_AD_CHGr             (0xC1U)  /* Def: 0x0; R/W: RW; Gr Channel Black Level Compensation */
 #define OV7670_REG_SATCTR              (0xC9U)  /* Def: 0xC0; R/W: RW; Saturation Control */
 #define OV7670_REG_DUMMY               (0xFFU)
-/* Note: XLK pin shall be connected to the corresponding timer OCU pin */
-/* D0..D7, VS, HS, PLK shall be connected to 8-bit with External Sync DCMI */
-/* SCCB SCL, SDA - to I2C */
-/* For GPIO, ,DMA, Timer configuration - please see in CubeMX project */
-/* Example for OV7670 <-> STM32F407VET6 connections:
- * SCL  -> PB10 (I2C2)
- * SDA  -> PB11 (I2C2)
- * VS   -> PB7  (DCMI)
- * HS   -> PA4  (DCMI)
- * PLK  -> PA6  (DCMI)
- * XLK  -> PC2  (TIM5 OCU CH3) 10.5..42 MHz
- * D7   -> PE6  (DCMI)
- * D6   -> PE5  (DCMI)
- * D5   -> PB6  (DCMI)
- * D4   -> PE4  (DCMI)
- * D3   -> PC9  (DCMI)
- * D2   -> PC8  (DCMI)
- * D1   -> PC7  (DCMI)
- * D0   -> PC6  (DCMI)
- * RET  -> PD11 (GPIO)
- * PWDN -> PD12 (GPIO)
- */
-
-/* Example of XLK clock signal configuration:
- * TIM5 CH3 OCU configuration (please see in CubeMx):
- * Mode:                     Ooutput Compare CH3, Toggle on Match;
- * Pin:                      PA2;
- * TIM_CLK (clock source):   84MHz,
- * TIM_CLD (clock division): 1,
- * TIM_PSC (prescaler - 1):  0,
- * TIM_CNT_CLK:              84000000,
- * TIM_ARR (period - 1):     1,
- * Pulse:                    1,
- * Polarity:                 any,
- * => f = 42MHz (max possible and max for OV7670 XLK).
- */
-
-/* TIM_CNT_CLK = TIM_CLK / TIM_CLD /(TIM_PSC + 1);
- * f  = TIM_CLK / (TIM_PSC + 1)/(TIM_ARR + 1);
- * Pulse = TIM_CNT_CLK / f / 2;
- */
-/******************************************************************************
- *                      GLOBAL FUNCTIONS PROTOTYPES                           *
- ******************************************************************************/
 
 extern void OV7670_Init(void);
 extern void OV7670_Start(void);
 extern void OV7670_Stop(void);
-
-/******************************************************************************
- *                  HAL callbacks for DCMI_IRQHandler                         *
- ******************************************************************************/
 
 #if (OV7670_STREAM_MODE == OV7670_SRTEAM_MODE_BY_FRAME)
 extern void HAL_DCMI_VsyncEventCallback(DCMI_HandleTypeDef *hdcmi);

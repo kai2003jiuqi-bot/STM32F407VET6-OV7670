@@ -18,29 +18,11 @@
 /******************************************************************************
  *                               LOCAL MACRO                                  *
  ******************************************************************************/
-#define OV7670_RGB565_BYTES           (2U)
-#define OV7670_LINES_IN_CHUNK         (1U)
-#define OV7670_WIDTH_SIZE_BYTES       (OV7670_WIDTH * OV7670_RGB565_BYTES)
-#define OV7670_WIDTH_SIZE_WORDS       (OV7670_WIDTH_SIZE_BYTES / 4U)
-#define OV7670_HEIGHT_SIZE_BYTES      (OV7670_HEIGHT * OV7670_RGB565_BYTES)
-#define OV7670_HEIGHT_SIZE_WORDS      (OV7670_HEIGHT_SIZE_BYTES / 4U)
-#define OV7670_FRAME_SIZE_BYTES       (OV7670_WIDTH * OV7670_HEIGHT * OV7670_RGB565_BYTES)
-#define OV7670_FRAME_SIZE_WORDS       (OV7670_FRAME_SIZE_BYTES / 4U)
-
-#if (OV7670_STREAM_MODE == OV7670_STREAM_MODE_BY_LINE)
-/* For double stream-line buffer */
-#define OV7670_BUFFER_SIZE            (OV7670_WIDTH_SIZE_BYTES * OV7670_RGB565_BYTES * OV7670_LINES_IN_CHUNK)
-#define OV7670_DMA_DATA_LEN           (OV7670_WIDTH_SIZE_WORDS * OV7670_LINES_IN_CHUNK)
-/* Macro for update address to second half of double-line buffer */
-#define OV7670_SWITCH_BUFFER()        ((ov_buf_addr != (uint32_t)buffer) ?\
-        (ov_buf_addr + (OV7670_BUFFER_SIZE)/ 2U) : (uint32_t)buffer)
-#define OV7670_RESET_BUFFER_ADDR()    (uint32_t)buffer
+#define OV7670_DMA_LEN         (OV7670_WIDTH / 2U)   /* 一行所需的32位字数 */
+#define OV7670_LINE_BYTES      (OV7670_WIDTH * 2U)   /* 一行字节数 */
 
 static void XCLK_Start(void)  { TIM5->CCER |= TIM_CCER_CC3E; TIM5->CR1 |= TIM_CR1_CEN; }
 static void XCLK_Stop(void)   { TIM5->CCER &= ~TIM_CCER_CC3E; TIM5->CR1 &= ~TIM_CR1_CEN; }
-
-#else
-#endif
 
 const uint8_t OV7670_reg[][2] =
 {
@@ -132,7 +114,7 @@ static volatile uint32_t   ov_buf_addr;
 static volatile uint32_t   ov_line_cnt;
 static volatile uint8_t    ov_state;
 /* Image buffer */
-static uint8_t buffer[160*120*2];
+static uint8_t buffer[OV7670_WIDTH * OV7670_HEIGHT * 2];
 /******************************************************************************
  *                       LOCAL FUNCTIONS PROTOTYPES                           *
  ******************************************************************************/
@@ -199,7 +181,7 @@ void OV7670_Start(void)
     /* Update requested mode */
     ov_mode = DCMI_MODE_CONTINUOUS;
     /* Reset buffer address */
-    ov_buf_addr = OV7670_RESET_BUFFER_ADDR();
+    ov_buf_addr = (uint32_t)buffer;
     /* Reset line counter */
     ov_line_cnt = 0U;
     ov_state = BUSY;
@@ -207,7 +189,7 @@ void OV7670_Start(void)
     /* Start camera XLK signal to capture the image data */
     XCLK_Start();
     /* Start DCMI capturing */
-    HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, ov_buf_addr, OV7670_DMA_DATA_LEN);
+    HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, ov_buf_addr, OV7670_DMA_LEN);
 }
 
 void OV7670_Stop(void)
@@ -270,7 +252,7 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
             lineCnt++;
         }
 
-        if (((lineCnt + 1U) % OV7670_LINES_IN_CHUNK) == 0U)
+        if (1U)  /* 每行都显示 */
         {
             /* 直接写到 LCD */
             ILI9341_SetRegion(0U, lineCnt, OV7670_WIDTH - 1U, lineCnt);
@@ -280,9 +262,9 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
             if (state == BUSY)
             {
                 /* Update buffer address with the next half-part */
-                buf_addr = OV7670_SWITCH_BUFFER();
+                buf_addr = (ov_buf_addr != (uint32_t)buffer) ? (uint32_t)buffer : (ov_buf_addr + OV7670_LINE_BYTES);
                 /* Capture next line from the snapshot/stream */
-                HAL_DCMI_Start_DMA(hdcmi, DCMI_MODE_CONTINUOUS, buf_addr, OV7670_DMA_DATA_LEN);
+                HAL_DCMI_Start_DMA(hdcmi, DCMI_MODE_CONTINUOUS, buf_addr, OV7670_DMA_LEN);
             }
         }
 

@@ -78,7 +78,7 @@ void OV7670_Task(void *p)
     {
         xQueueReceive(OV7670QueueHandle, &dummy, portMAX_DELAY);
 
-        #if 1
+        #if 0
         rgb565_to_rgb888((const uint16_t *)capture_data, s_rgb888,
                          OV7670_WIDTH * OV7670_HEIGHT);
 

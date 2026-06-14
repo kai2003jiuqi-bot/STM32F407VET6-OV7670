@@ -38,6 +38,7 @@
 
 #include "OV7670.h"
 #include "OV7670_reg.h"
+#include "OV7670_task.h"
 #include "rgb565_utils.h"
 #include "ili9341_display.h"
 #include "dcmi.h"
@@ -141,9 +142,10 @@ void OV7670_Stop(void)
  */
 void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
 {
-    extern xQueueHandle OV7670QueueHandle;
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
     uint8_t val = 1;
-    xQueueSendFromISR(OV7670QueueHandle, &val, NULL);
+    xQueueSendFromISR(OV7670QueueHandle, &val, &xHigherPriorityTaskWoken);
+    portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
 /* ==================================================================== */

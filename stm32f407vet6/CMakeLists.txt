@@ -52,6 +52,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/OV7670.c
     App/rgb565_utils.c
     App/stb_impl.c
+    App/OV7670_task.c
 )
 
 # Add include paths

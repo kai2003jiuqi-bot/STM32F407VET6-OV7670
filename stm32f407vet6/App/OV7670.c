@@ -34,7 +34,7 @@ static void OV7670_Delay(uint32_t time);
 static void OV7670_XLK_Enable(void);
 static void OV7670_XLK_Disable(void);
 static void OV7670_W_PWDN(uint8_t value);
-static void OV7670_W_RST(void);
+static void OV7670_W_RST(uint8_t value);
 
 /* ==================================================================== */
 /*                           Public API                                  */
@@ -48,7 +48,10 @@ void OV7670_Init(void)
     // 1: pull PWDN low → normal operation
     OV7670_W_PWDN(0);
     // 2: hardware reset (RST low 50ms → high 50ms)
-    OV7670_W_RST();
+    OV7670_W_RST(0);
+    OV7670_Delay(50);
+    OV7670_W_RST(1);
+    OV7670_Delay(50);
     // 3: start XCLK for SCCB communication
     OV7670_XLK_Enable();
     // 4: soft reset via SCCB
@@ -166,12 +169,9 @@ static void OV7670_W_PWDN(uint8_t value)
 /**
  * @brief 硬件复位
 */
-static void OV7670_W_RST(void)
+static void OV7670_W_RST(uint8_t value)
 {
-    HAL_GPIO_WritePin(OV7670_RST_GPIO_Port, OV7670_RST_Pin, GPIO_PIN_RESET);
-    OV7670_Delay(50);
-    HAL_GPIO_WritePin(OV7670_RST_GPIO_Port, OV7670_RST_Pin, GPIO_PIN_SET);
-    OV7670_Delay(50);
+    HAL_GPIO_WritePin(OV7670_RST_GPIO_Port, OV7670_RST_Pin, value ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
 /**

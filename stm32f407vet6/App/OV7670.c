@@ -244,7 +244,7 @@ const uint8_t OV7670_reg[][2] =
   {OV7670_REG_RSRVD,            0x84},         // Important!
   /* Clock settings */
   {OV7670_REG_COM3,             0x04},         // DCW enable
-  {OV7670_REG_COM14,            0x19},         // manual scaling, pclk/=2
+  {OV7670_REG_COM14,            0x00},         // no scaling, no pclk divider
   {OV7670_REG_SCALING_XSC,      0x3A},         // scaling_xsc
   {OV7670_REG_SCALING_YSC,      0x35},         // scaling_ysc
   {OV7670_REG_SCALING_DCWCTR,   0x11},         // down sample by 2
@@ -320,7 +320,7 @@ const uint8_t OV7670_reg[][2] =
 #endif
   /* FPS */
 //{OV7670_REG_DBLV,             0x4a},         // PLL  x4
-  {OV7670_REG_CLKRC,            0x00},         // Pre-scalar = 1/1
+  {OV7670_REG_CLKRC,            0x04},         // Pre-scalar = XCLK/5 (QR项目验证值)
   /* Others */
   {OV7670_REG_MVFP,             0x31},         // Mirror flip
 //{OV7670_REG_COM17,            0x08},         // Test screen with color bars

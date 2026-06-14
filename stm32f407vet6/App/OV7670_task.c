@@ -52,7 +52,7 @@ static void vofa_send_jpg(int img_id, size_t jpg_len)
                         img_id, (int)jpg_len, Format_JPG);
     HAL_UART_Transmit(&huart1, (uint8_t *)header, hlen, 1000);
     HAL_UART_Transmit(&huart1, s_jpeg_buf, jpg_len, 5000);
-    printf("\r\n\r\n");
+    printf("\r\n");
 }
 
 /* ==================================================================== */

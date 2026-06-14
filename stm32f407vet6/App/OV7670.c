@@ -235,7 +235,7 @@
 const uint8_t OV7670_reg[][2] =
 {
   /* Color mode and resolution settings */
-  {OV7670_REG_COM7,             0x14},         // QVGA, RGB
+  {OV7670_REG_COM7,             0x04},         // VGA+RGB, 靠DCW缩到QQVGA
 //{OV7670_REG_COM7,             0xCU},         // QCIF (176*144), RGB
   {OV7670_REG_RGB444,           0x00},         // RGB444 Disable
   {OV7670_REG_COM15,            0xD0},         // RGB565
@@ -244,17 +244,17 @@ const uint8_t OV7670_reg[][2] =
   {OV7670_REG_RSRVD,            0x84},         // Important!
   /* Clock settings */
   {OV7670_REG_COM3,             0x04},         // DCW enable
-  {OV7670_REG_COM14,            0x00},         // no scaling, no pclk divider
+  {OV7670_REG_COM14,            0x1A},         // divide by 4, scaling on
   {OV7670_REG_SCALING_XSC,      0x3A},         // scaling_xsc
   {OV7670_REG_SCALING_YSC,      0x35},         // scaling_ysc
-  {OV7670_REG_SCALING_DCWCTR,   0x11},         // down sample by 2
-  {OV7670_REG_SCALING_PCLK_DIV, 0xf1},         // DSP clock /= 2
+  {OV7670_REG_SCALING_DCWCTR,   0x22},         // downsample by 4
+  {OV7670_REG_SCALING_PCLK_DIV, 0xF2},         // divide by 4
   /* Windowing */
   {OV7670_REG_HSTART,           0x16},         // HSTART
   {OV7670_REG_HSTOP,            0x04},         // HSTOP
-  {OV7670_REG_HREF,             0x80},         // HREF
-  {OV7670_REG_VSTRT,            0x03},         // VSTART =  14 ( = 3 * 4 + 2)
-  {OV7670_REG_VSTOP,            0x7b},         // VSTOP  = 494 ( = 123 * 4 + 2)
+  {OV7670_REG_HREF,             0xA4},         // HREF (QQVGA)
+  {OV7670_REG_VSTRT,            0x02},         // VSTART (QQVGA)
+  {OV7670_REG_VSTOP,            0x7A},         // VSTOP (QQVGA)
   {OV7670_REG_VREF,             0x0a},         // VREF (VSTART_LOW = 2, VSTOP_LOW = 2)
   /* Color matrix coefficient */
 #if 0
@@ -320,7 +320,7 @@ const uint8_t OV7670_reg[][2] =
 #endif
   /* FPS */
 //{OV7670_REG_DBLV,             0x4a},         // PLL  x4
-  {OV7670_REG_CLKRC,            0x02},         // Pre-scalar = XCLK/5 (QR项目验证值)
+  {OV7670_REG_CLKRC,            0x00},         // Pre-scalar = XCLK/5 (QR项目验证值)
   /* Others */
   {OV7670_REG_MVFP,             0x31},         // Mirror flip
 //{OV7670_REG_COM17,            0x08},         // Test screen with color bars

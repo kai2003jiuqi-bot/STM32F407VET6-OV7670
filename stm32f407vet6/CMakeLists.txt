@@ -51,6 +51,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/ili9341_display.c
     App/OV7670.c
     App/rgb565_utils.c
+    App/stb_impl.c
 )
 
 # Add include paths
@@ -71,6 +72,7 @@ list(REMOVE_ITEM CMAKE_C_IMPLICIT_LINK_LIBRARIES ob)
 # Add linked libraries
 target_link_libraries(${CMAKE_PROJECT_NAME}
     stm32cubemx
+    m
 
     # Add user defined libraries
 )

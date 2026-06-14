@@ -6,6 +6,8 @@
 #include "OV7670.h"
 
 TaskHandle_t loopTaskHandle = NULL;
+TaskHandle_t OV7670TaskHandle = NULL;
+
 void loop(void *p);
 
 void app_main()
@@ -14,9 +16,8 @@ void app_main()
     log_info("sys", "OV7670 Demo");
     log_info("sys", "Boot Count: %d", BOOTCOUNT_Get());
 
-    /* ---- LCD 初始化 ---- */
+    // 初始化
     ILI9341_Init();
-
     OV7670_Init();
     OV7670_Start();
 
@@ -29,5 +30,13 @@ void loop(void *p)
     while (1)
     {
         vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+void OV7670_task(void *p)
+{
+    while(1)
+    {
+
     }
 }

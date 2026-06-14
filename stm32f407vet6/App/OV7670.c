@@ -3,7 +3,8 @@
  * 基于STM32F407VET6；
  * OV7670摄像头驱动，采用QQVGA分辨率160x120，采用DCMI的循环DMA采集模式；
  * 采集一帧图像会触发一次中断；
- * 
+ * 帧回调中通过RGB565双线性插值将160x120放大到320x240并显示。
+ *
  * 引脚连接（OV7670 → STM32F407VET6）：
  *   XCLK  →  PA2    (TIM5_CH3, 42MHz)
  *   PCLK  →  PA6    (DCMI_PIXCLK)
@@ -21,7 +22,7 @@
  *   SDA   →  PB11   (I2C2_SDA)
  *   RST   →  PD11   (GPIO输出)
  *   PWDN  →  PD12   (GPIO输出)
- * 
+ *
  * 使用方法：
  * 0、配置好I2C、XCLK（用定时器输出42MHX方波、DCMI；
  *    编写帧触发中断HAL_DCMI_FrameEventCallback函数；
@@ -30,11 +31,14 @@
  * 2、调用OV7670_Start()开始采集图像；
  * 3、当采集完一帧后触发帧中断HAL_DCMI_FrameEventCallback；
  *    完整的图像会保存在数组capture_data中；
+ *    帧回调中自动对160x120做RGB565双线性插值放大到320x240并显示；
  * 4、可以选择调用OV7670_Stop()停止采集图像；
+ *
  */
 
 #include "OV7670.h"
 #include "OV7670_reg.h"
+#include "rgb565_utils.h"
 #include "ili9341_display.h"
 #include "dcmi.h"
 #include "i2c.h"
@@ -43,11 +47,7 @@
 #include "log.h"
 #include <string.h>
 
-#define OV7670_WIDTH                  160U
-#define OV7670_HEIGHT                 120U
-#define OV7670_SCCB_ADDR              0x42U
-
-static uint8_t capture_data[OV7670_WIDTH * OV7670_HEIGHT * 2]; // 存储捕获的一帧图像
+uint8_t capture_data[OV7670_WIDTH * OV7670_HEIGHT * 2]; // 存储捕获的一帧图像
 
 static uint8_t OV7670_SCCB_Write(uint8_t regAddr, uint8_t data);
 static uint8_t OV7670_SCCB_Read(uint8_t regAddr, uint8_t *data);
@@ -105,8 +105,6 @@ void OV7670_Init(void)
  * @brief 启动OV7670，开始捕获图像
  */
 void OV7670_Start(void)
-    // 1: 开启XCLK，摄像头开始输出数据
-    // 2: 启动CIRCULAR DMA，持续写入capture_data
 {
     OV7670_XLK_Enable();
     HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS,
@@ -118,23 +116,85 @@ void OV7670_Start(void)
  * @brief 停止OV7670，停止捕获图像
  */
 void OV7670_Stop(void)
-    // 1: 停止DCMI（DMA也随之停止）
-    // 2: 关闭XCLK
 {
     HAL_DCMI_Stop(&hdcmi);
     OV7670_XLK_Disable();
 }
 
 /**
- * @brief 帧完成中断回调（VSYNC下降沿触发时调用）
-*/
+ * @brief 帧完成中断（VSYNC上升沿）—— 将QQVGA图像放大到全屏显示。
+ *
+ * 算法概览（纯整数 RGB565 双线性插值，逐行处理）：
+ *
+ *   输出像素 (dx, dy) 对应输入像素 (dx/2, dy/2)：
+ *
+ *           dx偶, dy偶 → 直接复制输入像素
+ *           dx奇, dy偶 → 水平平均 (p0 + p1)/2
+ *           dx偶, dy奇 → 垂直平均 (p0 + p2)/2
+ *           dx奇, dy奇 → 四角平均 (p0+p1+p2+p3)/4
+ *
+ *   内存优化：不放完整输出帧缓冲，每处理完1个输入行
+ *   （产生2个输出行）立刻送显，总临时栈~1.3KB。
+ */
 void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
 {
-    // 显示到LCD 
-    uint8_t buff[OV7670_WIDTH * OV7670_HEIGHT * 2];
-    memcpy(buff, capture_data, sizeof(buff));
-    ILI9341_SetRegion(0, 0, OV7670_WIDTH - 1U, OV7670_HEIGHT - 1U);
-    ILI9341_WritePixels((uint16_t*)buff, OV7670_WIDTH * OV7670_HEIGHT);
+    const uint16_t *src = (const uint16_t *)capture_data;
+    uint16_t row_buf[320];               // 640B: 输出行缓冲
+    uint16_t row0[OV7670_WIDTH];         // 320B: 当前输入行
+    uint16_t row1[OV7670_WIDTH];         // 320B: 下一输入行
+
+    ILI9341_SetRegion(0, 0, 319, 239);
+
+    for (int sy = 0; sy < OV7670_HEIGHT; sy++) // sy:source y 行索引
+    {
+        /* ---- 复制当前行（防止DMA写入导致数据不一致） ---- */
+        memcpy(row0, &src[sy * OV7670_WIDTH], OV7670_WIDTH * sizeof(uint16_t));
+
+        /* ================== 输出行 A (dy = sy*2) ================== */
+        /* 偶数行：仅水平插值 */
+        for (int dx = 0; dx < 320; dx++)    
+        {
+            int sx = dx >> 1;  // sx:source x 列索引
+            uint16_t p = row0[sx];
+            if (dx & 1)  /* 奇数列：与右侧像素水平平均 */
+            {
+                p = (sx + 1 < OV7670_WIDTH)
+                        ? RGB565_Avg2(p, row0[sx + 1])
+                        : p;
+            }
+            row_buf[dx] = p;
+        }
+        ILI9341_WritePixels(row_buf, 320);
+
+        /* ================== 输出行 B (dy = sy*2 + 1) ================== */
+        /* 奇数行：水平 + 垂直双线性插值 */
+        if (sy + 1 < OV7670_HEIGHT)
+        {
+            memcpy(row1, &src[(sy + 1) * OV7670_WIDTH],
+                   OV7670_WIDTH * sizeof(uint16_t));
+
+            for (int dx = 0; dx < 320; dx++)
+            {
+                int sx = dx >> 1;
+                if (dx & 1)
+                {
+                    /* 四角双线性平均 */
+                    uint16_t tr = (sx + 1 < OV7670_WIDTH)
+                                      ? row0[sx + 1] : row0[sx];
+                    uint16_t br = (sx + 1 < OV7670_WIDTH)
+                                      ? row1[sx + 1] : row1[sx];
+                    row_buf[dx] = RGB565_Avg4(row0[sx], tr, row1[sx], br);
+                }
+                else
+                {
+                    /* 垂直平均 */
+                    row_buf[dx] = RGB565_Avg2(row0[sx], row1[sx]);
+                }
+            }
+        }
+        /* 最后一行无下一行可插值，直接复用 row_buf（当前仍为行A数据） */
+        ILI9341_WritePixels(row_buf, 320);
+    }
 }
 
 /* ==================================================================== */
@@ -220,8 +280,3 @@ static void OV7670_XLK_Disable(void)
     TIM5->CCER &= ~TIM_CCER_CC3E;
     TIM5->CR1 &= ~TIM_CR1_CEN;
 }
-
-
-void OV7670_Init(void);
-void OV7670_Start(void);
-void OV7670_Stop(void);

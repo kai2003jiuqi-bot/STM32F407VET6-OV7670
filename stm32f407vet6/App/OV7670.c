@@ -95,7 +95,6 @@ void OV7670_Stop(void)
 void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
 {
     uint8_t state = 1;
-    uint32_t buf_addr = 0x0U;
 
     /* If this line is the last line of the frame */
     if (ov_line_cnt == OV7670_HEIGHT - 1U)
@@ -113,7 +112,7 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
     {
         /* 直接写到 LCD */
         ILI9341_SetRegion(0U, ov_line_cnt, OV7670_WIDTH - 1U, ov_line_cnt);
-        ILI9341_WritePixels((const uint16_t *)ov_buf_addr, OV7670_WIDTH);
+        ILI9341_WritePixels((uint16_t*)buffer, OV7670_WIDTH);
 
         /* If driver is still working */
         if (state == 1)
@@ -121,10 +120,6 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
             HAL_DCMI_Start_DMA(hdcmi, DCMI_MODE_CONTINUOUS, (uint32_t)buffer, (OV7670_WIDTH / 2U));
         }
     }
-
-    __disable_irq();
-    ov_buf_addr = (buf_addr) ? buf_addr : ov_buf_addr;
-    __enable_irq();
 }
 
 

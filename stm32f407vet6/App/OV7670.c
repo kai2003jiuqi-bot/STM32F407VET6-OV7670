@@ -10,7 +10,6 @@
  ******************************************************************************/
 
 #include "OV7670.h"
-#include "StateM.h"
 
 /******************************************************************************
  *                               LOCAL MACRO                                  *
@@ -412,7 +411,8 @@ void OV7670_Init(DCMI_HandleTypeDef *hdcmi, I2C_HandleTypeDef *hi2c, TIM_HandleT
     /* Get camera ID */
     uint8_t buf[4] = {0};
     HAL_StatusTypeDef ret = SCCB_Read(OV7670_REG_VER, buf);
-    DEBUG_LOG("[OV7670] dev id = 0x%02X (ret=%d)", buf[0], ret);
+    // DEBUG_LOG("[OV7670] dev id = 0x%02X (ret=%d)", buf[0], ret);
+    log_info("OV7670", "dev id = 0x%02X (ret=%d)", buf[0], ret);
 
     if (ret == HAL_OK)
     {
@@ -429,7 +429,8 @@ void OV7670_Init(DCMI_HandleTypeDef *hdcmi, I2C_HandleTypeDef *hi2c, TIM_HandleT
     }
     else
     {
-        DEBUG_LOG("[OV7670] NOT DETECTED, skipping config");
+        // DEBUG_LOG("[OV7670] NOT DETECTED, skipping config");
+        log_info("OV7670", "NOT DETECTED, skipping config");
     }
     /* Stop camera XLK signal */
     OV7670_STOP_XLK(OV7670.htim, OV7670.tim_ch);

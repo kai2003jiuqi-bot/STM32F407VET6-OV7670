@@ -14,6 +14,7 @@
 
 #include "main.h"
 #include "gpio.h"
+#include "log.h"
 
 /******************************************************************************
  *                            CONFIGURATION MACRO                             *

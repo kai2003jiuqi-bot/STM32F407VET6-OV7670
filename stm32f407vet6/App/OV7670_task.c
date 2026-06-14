@@ -9,10 +9,8 @@
 #include "log.h"
 #include <string.h>
 
-/* ------ 队列句柄 ------ */
 xQueueHandle OV7670QueueHandle = NULL;
 
-/* ------ JPEG 输出缓冲 ------ */
 static uint8_t  s_jpeg_buf[16384];
 static size_t   s_jpeg_len;
 

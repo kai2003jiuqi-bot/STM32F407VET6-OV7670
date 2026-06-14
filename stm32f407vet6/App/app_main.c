@@ -23,14 +23,21 @@ static void OV7670_DrawLine(const uint8_t *buffer, uint32_t buf_size,
 }
 
 /* ==================================================================== */
-/*  OV7670 寄存器读取（通过 SCCB/I2C）                                   */
+/*  OV7670 寄存器读取（SCCB 协议，参考 OV7670_R_REG）                    */
+/*  SCCB 读 = 发地址(带STOP) + 重新START读数据，不能用 Mem_Read          */
 /* ==================================================================== */
 static uint8_t OV7670_ReadReg(uint8_t reg)
 {
     uint8_t val = 0;
-    if (HAL_I2C_Mem_Read(&hi2c2, 0x42, reg, I2C_MEMADD_SIZE_8BIT, &val, 1, 100) != HAL_OK)
+    /* 第一步：发寄存器地址（带 STOP） */
+    if (HAL_I2C_Master_Transmit(&hi2c2, 0x42, &reg, 1, 100) != HAL_OK)
     {
-        return 0xFF;  /* 读失败返回 0xFF */
+        return 0xFF;
+    }
+    /* 第二步：重新 START + 读数据 */
+    if (HAL_I2C_Master_Receive(&hi2c2, 0x42, &val, 1, 100) != HAL_OK)
+    {
+        return 0xFF;
     }
     return val;
 }
@@ -48,6 +55,9 @@ void app_main()
 
     /* ---- OV7670 初始化 ---- */
     OV7670_Init(&hdcmi, &hi2c2, &htim5, TIM_CHANNEL_3);
+
+    /* OV7670_Init 结束后 XCLK 被关闭了，读寄存器前要重新开启 */
+    HAL_TIM_OC_Start(&htim5, TIM_CHANNEL_3);
 
     /* ---- 读几个寄存器验证配置 ---- */
     printf("====== OV7670 Register Verify ======\r\n");
@@ -72,6 +82,9 @@ void app_main()
         printf("  [FAIL] OV7670 not responding! Check wiring/I2C/XCLK.\r\n");
     }
     printf("====================================\r\n");
+
+    /* 验证完毕，XCLK 停掉等 Start 再开 */
+    HAL_TIM_OC_Stop(&htim5, TIM_CHANNEL_3);
 
     /* ---- 注册行回调 ---- */
     OV7670_RegisterCallback(OV7670_DRAWLINE_CBK, (OV7670_FncPtr_t)OV7670_DrawLine);

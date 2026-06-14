@@ -23,9 +23,9 @@ static volatile uint32_t   ov_buf_addr;
 static volatile uint32_t   ov_line_cnt;
 static volatile uint8_t    ov_state;
 static uint8_t buffer[OV7670_WIDTH * OV7670_HEIGHT * 2];
-static HAL_StatusTypeDef SCCB_Write(uint8_t regAddr, uint8_t data);
-static HAL_StatusTypeDef SCCB_Read(uint8_t regAddr, uint8_t *data);
-static void OV7670_DELAY(uint32_t time);
+static HAL_StatusTypeDef OV7670_SCCB_Write(uint8_t regAddr, uint8_t data);
+static HAL_StatusTypeDef OV7670_SCCB_Read(uint8_t regAddr, uint8_t *data);
+static void OV7670_Delay(uint32_t time);
 static void OV7670_XLK_Enable(void);
 static void OV7670_XLK_Disable(void);
 static void OV7670_w_pwdn(uint8_t value);
@@ -39,25 +39,25 @@ void OV7670_Init(void)
     OV7670_XLK_Enable();
 
     /* Do camera reset */
-    SCCB_Write(OV7670_REG_COM7, 0x80);
-    OV7670_DELAY(30);
+    OV7670_SCCB_Write(OV7670_REG_COM7, 0x80);
+    OV7670_Delay(30);
 
     /* Get camera ID */
     uint8_t buf[4] = {0};
-    HAL_StatusTypeDef ret = SCCB_Read(OV7670_REG_VER, buf);
+    HAL_StatusTypeDef ret = OV7670_SCCB_Read(OV7670_REG_VER, buf);
     log_info("OV7670", "dev id = 0x%02X (ret=%d)", buf[0], ret);
 
     if (ret == HAL_OK)
     {
         /* Do camera reset */
-        SCCB_Write(OV7670_REG_COM7, 0x80);
-        OV7670_DELAY(30);
+        OV7670_SCCB_Write(OV7670_REG_COM7, 0x80);
+        OV7670_Delay(30);
 
         /* Do camera configuration */
         for (uint32_t i = 0; OV7670_reg[i][0] != OV7670_REG_DUMMY; i++)
         {
-            SCCB_Write(OV7670_reg[i][0], OV7670_reg[i][1]);
-            OV7670_DELAY(1);
+            OV7670_SCCB_Write(OV7670_reg[i][0], OV7670_reg[i][1]);
+            OV7670_Delay(1);
         }
     }
     else
@@ -169,7 +169,7 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
  *                              LOCAL FUNCTIONS                               *
  ******************************************************************************/
 
-static HAL_StatusTypeDef SCCB_Write(uint8_t regAddr, uint8_t data)
+static HAL_StatusTypeDef OV7670_SCCB_Write(uint8_t regAddr, uint8_t data)
 {
     HAL_StatusTypeDef ret = HAL_ERROR;
     for (int i = 0; i < 3; i++)
@@ -181,7 +181,7 @@ static HAL_StatusTypeDef SCCB_Write(uint8_t regAddr, uint8_t data)
     return ret;
 }
 
-static HAL_StatusTypeDef SCCB_Read(uint8_t regAddr, uint8_t *data)
+static HAL_StatusTypeDef OV7670_SCCB_Read(uint8_t regAddr, uint8_t *data)
 {
     HAL_StatusTypeDef ret = HAL_ERROR;
     for (int i = 0; i < 3; i++)
@@ -194,7 +194,7 @@ static HAL_StatusTypeDef SCCB_Read(uint8_t regAddr, uint8_t *data)
     return ret;
 }
 
-void OV7670_DELAY(uint32_t time)
+void OV7670_Delay(uint32_t time)
 {
     HAL_Delay(time);
 }
@@ -208,9 +208,9 @@ static void OV7670_w_pwdn(uint8_t value)
 static void OV7670_w_rst(void)
 {
     HAL_GPIO_WritePin(OV7670_RST_GPIO_Port, OV7670_RST_Pin, GPIO_PIN_RESET);
-    OV7670_DELAY(50);
+    OV7670_Delay(50);
     HAL_GPIO_WritePin(OV7670_RST_GPIO_Port, OV7670_RST_Pin, GPIO_PIN_SET);
-    OV7670_DELAY(50);
+    OV7670_Delay(50);
 }
 
 static void OV7670_XLK_Enable(void)  

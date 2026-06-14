@@ -11,12 +11,6 @@
 #include "i2c.h"
 #include "tim.h"
 
-#define OV7670_DMA_LEN         (OV7670_WIDTH / 2U)   /* 一行所需的32位字数 */
-#define OV7670_LINE_BYTES      (OV7670_WIDTH * 2U)   /* 一行字节数 */
-
-static void XCLK_Start(void)  { TIM5->CCER |= TIM_CCER_CC3E; TIM5->CR1 |= TIM_CR1_CEN; }
-static void XCLK_Stop(void)   { TIM5->CCER &= ~TIM_CCER_CC3E; TIM5->CR1 &= ~TIM_CR1_CEN; }
-
 const uint8_t OV7670_reg[][2] =
 {
   /* Color mode and resolution settings */
@@ -81,24 +75,6 @@ const uint8_t OV7670_reg[][2] =
 //{OV7670_REG_COM17,            0x08},         // Test screen with color bars
   {OV7670_REG_DUMMY,            OV7670_REG_DUMMY},
 };
-/******************************************************************************
- *                           LOCAL DATA TYPES                                 *
- ******************************************************************************/
-
-
-enum
-{
-    FALSE, TRUE
-};
-
-enum
-{
-    BUSY, READY
-};
-
-/******************************************************************************
- *                         LOCAL DATA PROTOTYPES                              *
- ******************************************************************************/
 
 /* Peripheral handles (直接使用全局) */
 /* Driver state */
@@ -108,16 +84,12 @@ static volatile uint32_t   ov_line_cnt;
 static volatile uint8_t    ov_state;
 /* Image buffer */
 static uint8_t buffer[OV7670_WIDTH * OV7670_HEIGHT * 2];
-/******************************************************************************
- *                       LOCAL FUNCTIONS PROTOTYPES                           *
- ******************************************************************************/
 static HAL_StatusTypeDef SCCB_Write(uint8_t regAddr, uint8_t data);
 static HAL_StatusTypeDef SCCB_Read(uint8_t regAddr, uint8_t *data);
 static uint8_t isFrameCaptured(void);
-
-/******************************************************************************
- *                              GLOBAL FUNCTIONS                              *
- ******************************************************************************/
+static void OV7670_DELAY(uint32_t time);
+static void XCLK_Start(void);
+static void XCLK_Stop(void); 
 
 void OV7670_Init(void)
 {
@@ -129,7 +101,6 @@ void OV7670_Init(void)
     /* RET pin to HIGH */
     HAL_GPIO_WritePin(OV7670_GPIO_PORT_RET, OV7670_GPIO_PIN_RET, GPIO_PIN_SET);
     OV7670_DELAY(100);
-
     /* Start camera XLK signal to be able to do initialization */
     XCLK_Start();
 
@@ -140,7 +111,6 @@ void OV7670_Init(void)
     /* Get camera ID */
     uint8_t buf[4] = {0};
     HAL_StatusTypeDef ret = SCCB_Read(OV7670_REG_VER, buf);
-    // DEBUG_LOG("[OV7670] dev id = 0x%02X (ret=%d)", buf[0], ret);
     log_info("OV7670", "dev id = 0x%02X (ret=%d)", buf[0], ret);
 
     if (ret == HAL_OK)
@@ -158,7 +128,6 @@ void OV7670_Init(void)
     }
     else
     {
-        // DEBUG_LOG("[OV7670] NOT DETECTED, skipping config");
         log_info("OV7670", "NOT DETECTED, skipping config");
     }
     /* Stop camera XLK signal */
@@ -177,12 +146,12 @@ void OV7670_Start(void)
     ov_buf_addr = (uint32_t)buffer;
     /* Reset line counter */
     ov_line_cnt = 0U;
-    ov_state = BUSY;
+    ov_state = 1;
     __enable_irq();
     /* Start camera XLK signal to capture the image data */
     XCLK_Start();
     /* Start DCMI capturing */
-    HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, ov_buf_addr, OV7670_DMA_LEN);
+    HAL_DCMI_Start_DMA(&hdcmi, DCMI_MODE_CONTINUOUS, ov_buf_addr, (OV7670_WIDTH / 2U));
 }
 
 void OV7670_Stop(void)
@@ -190,7 +159,7 @@ void OV7670_Stop(void)
     while(!isFrameCaptured());
     __disable_irq();
     HAL_DCMI_Stop(&hdcmi);
-    ov_state = READY;
+    ov_state = 0;
     __enable_irq();
     XCLK_Stop();
 }
@@ -199,21 +168,21 @@ uint8_t OV7670_isDriverBusy(void)
 {
     uint8_t retVal;
     __disable_irq();
-    retVal = (ov_state == BUSY) ? TRUE : FALSE;
+    retVal = (ov_state == 1) ? 1 : 0;
     __enable_irq();
     return retVal;
 }
 
 void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
 {
-    uint8_t vsync_detected = FALSE;
-    uint8_t state = BUSY;
+    uint8_t vsync_detected = 0;
+    uint8_t state = 1;
     uint32_t buf_addr = 0x0U;
     uint32_t lineCnt;
 
     if (!(hdcmi->Instance->SR & DCMI_SR_VSYNC))
     {
-        vsync_detected = TRUE;
+        vsync_detected = 1;
     }
 
     if (vsync_detected)
@@ -235,8 +204,8 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
             /* Update state if mode is SNAPSHOT */
             if (ov_mode == DCMI_MODE_SNAPSHOT)
             {
-                state = READY;
-                vsync_detected = FALSE;
+                state = 0;
+                vsync_detected = 0;
             }
         }
         else
@@ -252,12 +221,12 @@ void HAL_DCMI_LineEventCallback(DCMI_HandleTypeDef *hdcmi)
             ILI9341_WritePixels((const uint16_t *)ov_buf_addr, OV7670_WIDTH);
 
             /* If driver is still working */
-            if (state == BUSY)
+            if (state == 1)
             {
                 /* Update buffer address with the next half-part */
-                buf_addr = (ov_buf_addr != (uint32_t)buffer) ? (uint32_t)buffer : (ov_buf_addr + OV7670_LINE_BYTES);
+                buf_addr = (ov_buf_addr != (uint32_t)buffer) ? (uint32_t)buffer : (ov_buf_addr + (OV7670_WIDTH * 2U));
                 /* Capture next line from the snapshot/stream */
-                HAL_DCMI_Start_DMA(hdcmi, DCMI_MODE_CONTINUOUS, buf_addr, OV7670_DMA_LEN);
+                HAL_DCMI_Start_DMA(hdcmi, DCMI_MODE_CONTINUOUS, buf_addr, (OV7670_WIDTH / 2U));
             }
         }
 
@@ -304,8 +273,25 @@ static uint8_t isFrameCaptured(void)
 {
     uint8_t retVal;
     __disable_irq();
-    retVal = (ov_line_cnt == 0U) ? TRUE : FALSE;
+    retVal = (ov_line_cnt == 0U) ? 1 : 0;
     __enable_irq();
     return retVal;
+}
+
+void OV7670_DELAY(uint32_t time)
+{
+    HAL_Delay(time);
+}
+
+static void XCLK_Start(void)  
+{ 
+    TIM5->CCER |= TIM_CCER_CC3E; 
+    TIM5->CR1 |= TIM_CR1_CEN; 
+}
+
+static void XCLK_Stop(void)   
+{ 
+    TIM5->CCER &= ~TIM_CCER_CC3E; 
+    TIM5->CR1 &= ~TIM_CR1_CEN; 
 }
 

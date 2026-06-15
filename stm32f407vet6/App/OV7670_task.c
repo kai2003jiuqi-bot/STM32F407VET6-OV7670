@@ -18,7 +18,7 @@
 
 xQueueHandle OV7670QueueHandle = NULL;
 
-static uint8_t  jpeg_buf[1024*2]; // 存储压缩后的JPEG图片
+static uint8_t  jpeg_buf[1024*4]; // 存储压缩后的JPEG图片
 static size_t   jpeg_len; // 计算当前压缩图片的长度           
 static uint8_t rgb888_buf[OV7670_WIDTH * OV7670_HEIGHT * 3] 
                 __attribute__((section(".ccmram")));
@@ -95,67 +95,54 @@ void OV7670_Task(void *p)
 
         // LCD显示图片
         uint16_t row_buf[320];               // 640B: 输出行缓冲
-        uint16_t row0[OV7670_WIDTH];         // 320B: 当前输入行
-        uint16_t row1[OV7670_WIDTH];         // 320B: 下一输入行
 
         // 设置LCD显示区域
         ILI9341_SetRegion(0, 0, 319, 239);
 
         for (int sy = 0; sy < OV7670_HEIGHT; sy++) // sy:source y 行索引
         {
-            memcpy(row0, &src[sy * OV7670_WIDTH], OV7670_WIDTH * sizeof(uint16_t));
-
-            /* ================== 输出行 A (dy = sy*2) ================== */
             /* 偶数行：仅水平插值 */
             for (int dx = 0; dx < 320; dx++) // dx:dest x 列索引
             {
                 int sx = dx >> 1;  // >>1 是除以2
-                uint16_t p = row0[sx]; // 原始像素
+                uint16_t *p = src + sx + sy * OV7670_WIDTH; // 原始像素
                 // 奇数列：水平双线性插值
                 if (dx & 1)  
                 {
-                    p = (sx + 1 < OV7670_WIDTH)
-                        ? RGB565_Avg2(p, row0[sx + 1]): p;
+                    *p = (sx + 1 < OV7670_WIDTH)
+                        ? RGB565_Avg2(*p, *(p+1)): *p;
+                    row_buf[dx] = *p;
                 }
                 // 偶数列：直接复制
-                row_buf[dx] = p;
+                else
+                {
+                    row_buf[dx] = *p;
+                }
             }
             ILI9341_WritePixels(row_buf, 320);
 
-            /* ================== 输出行 B (dy = sy*2 + 1) ================== */
-            /* 奇数行：水平 + 垂直双线性插值 */
+            // 非最后一行奇数行：双线性插值
             if (sy + 1 < OV7670_HEIGHT)
             {
-                memcpy(row1, &src[(sy + 1) * OV7670_WIDTH],
-                    OV7670_WIDTH * sizeof(uint16_t));
-
                 for (int dx = 0; dx < 320; dx++)
                 {
                     int sx = dx >> 1;
-                    /* 奇数列：水平双线性插值 */
                     if (dx & 1 && sx + 1 < OV7670_WIDTH)
                     {
-                        /* 四角双线性平均 */
-                        // row_buf[dx] = RGB565_Avg4(row0[sx], 
-                        //                           row0[sx + 1], 
-                        //                           row1[sx], 
-                        //                           row1[sx + 1]
-                        // );
+                        // 奇数列：水平双线性插值
                         row_buf[dx] = RGB565_Avg4(src[sx], 
                                                   src[sx + 1 + OV7670_WIDTH], 
                                                   src[sx], 
                                                   src[sx + 1 + OV7670_WIDTH]
                         );
                     }
-                    // 偶数列：垂直双线性插值
                     else
                     {
-                        /* 垂直平均 */
-                        row_buf[dx] = RGB565_Avg2(row0[sx], row1[sx]);
+                        // 偶数列或最后一行奇数列：垂直双线性插值
+                        row_buf[dx] = RGB565_Avg2(src[sx], src[sx + OV7670_WIDTH]);
                     }
                 }
             }
-            /* 最后一行无下一行可插值，直接复用 row_buf（当前仍为行A数据） */
             ILI9341_WritePixels(row_buf, 320);
         }
     }
@@ -166,7 +153,7 @@ void OV7670_Task(void *p)
 /* ==================================================================== */
 
 /** 
- * @brief 将 JPEG 输出的一包数据追加到 jpeg_buf 
+ * @brief 将 JPEG 输出的一包数据追加到
  */
 static void stb_write_cb(void *context, void *data, int size)
 {

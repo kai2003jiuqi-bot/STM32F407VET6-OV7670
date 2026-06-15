@@ -11,23 +11,35 @@
 
 xQueueHandle OV7670QueueHandle = NULL;
 
-static uint8_t  s_jpeg_buf[16384];
-static size_t   s_jpeg_len;
+#define RGB565_R(v)  (((v) >> 11) & 0x1F)   
+#define RGB565_G(v)  (((v) >> 5)  & 0x3F)
+#define RGB565_B(v)  ((v)         & 0x1F)
+#define RGB565_PACK(r, g, b)  ((uint16_t)(((r) << 11) | ((g) << 5) | (b)))
 
+static uint8_t  jpeg_buf[16384];
+static size_t   jpeg_len;
 /* ------ RGB888 转换缓冲 (放 CCMRAM, 不占主 RAM) ------ */
-static uint8_t s_rgb888[OV7670_WIDTH * OV7670_HEIGHT * 3]
-    __attribute__((section(".ccmram")));
+static uint8_t rgb888_buf[OV7670_WIDTH * OV7670_HEIGHT * 3] 
+                __attribute__((section(".ccmram")));
 
-/** stb 写回调: 将 JPEG 输出追加到 s_jpeg_buf */
+/* ==================================================================== */
+/*                          Private API                                  */
+/* ==================================================================== */
+
+/** 
+ * @brief 将 JPEG 输出追加到 jpeg_buf 
+ */
 static void stb_write_cb(void *context, void *data, int size)
 {
     (void)context;
-    if (s_jpeg_len + (size_t)size > sizeof(s_jpeg_buf)) return;
-    memcpy(s_jpeg_buf + s_jpeg_len, data, (size_t)size);
-    s_jpeg_len += (size_t)size;
+    if (jpeg_len + (size_t)size > sizeof(jpeg_buf)) return;
+    memcpy(jpeg_buf + jpeg_len, data, (size_t)size);
+    jpeg_len += (size_t)size;
 }
 
-/** RGB565 → RGB888 逐像素转换 */
+/** 
+ * @brief RGB565 → RGB888 逐像素转换 
+ */
 static void rgb565_to_rgb888(const uint16_t *src, uint8_t *dst, int pixels)
 {
     for (int i = 0; i < pixels; i++) {
@@ -41,7 +53,39 @@ static void rgb565_to_rgb888(const uint16_t *src, uint8_t *dst, int pixels)
     }
 }
 
-/** 通过 UART 以 Vofa+ FireWater 协议发送 JPEG */
+/**
+ * @brief  对2个RGB565像素按通道取平均（用于水平/垂直插值）
+ * @param  p0, p1  输入像素
+ * @return 平均后的像素
+ */
+static uint16_t RGB565_Avg2(uint16_t p0, uint16_t p1)
+{
+    uint16_t r = (RGB565_R(p0) + RGB565_R(p1)) >> 1;
+    uint16_t g = (RGB565_G(p0) + RGB565_G(p1)) >> 1;
+    uint16_t b = (RGB565_B(p0) + RGB565_B(p1)) >> 1;
+    return RGB565_PACK(r, g, b);
+}
+
+
+/**
+ * @brief  对4个RGB565像素按通道取平均（用于双线性插值）
+ * @param  p0, p1, p2, p3  输入像素（通常为左上、右上、左下、右下）
+ * @return 平均后的像素
+ */
+static uint16_t RGB565_Avg4(uint16_t p0, uint16_t p1, uint16_t p2, uint16_t p3)
+{
+    uint16_t r = ((uint16_t)RGB565_R(p0) + RGB565_R(p1)
+                + RGB565_R(p2) + RGB565_R(p3)) >> 2;
+    uint16_t g = ((uint16_t)RGB565_G(p0) + RGB565_G(p1)
+                + RGB565_G(p2) + RGB565_G(p3)) >> 2;
+    uint16_t b = ((uint16_t)RGB565_B(p0) + RGB565_B(p1)
+                + RGB565_B(p2) + RGB565_B(p3)) >> 2;
+    return RGB565_PACK(r, g, b);
+}
+
+/** 
+ * @brief 通过 UART 以 Vofa+ FireWater 协议发送 JPEG 
+ */
 static void vofa_send_jpg(int img_id, size_t jpg_len)
 {
     char header[64];
@@ -49,47 +93,61 @@ static void vofa_send_jpg(int img_id, size_t jpg_len)
                         "image:%d,%d,-1,-1,%d\n",
                         img_id, (int)jpg_len, Format_JPG);
 
-    /* 合并 header + JPEG 到 s_jpeg_buf 头部，一次发送 */
-    memmove(s_jpeg_buf + hlen, s_jpeg_buf, jpg_len);
-    memcpy(s_jpeg_buf, header, hlen);
-    // HAL_UART_Transmit(&huart1, s_jpeg_buf, hlen + jpg_len, 0xFFFF);
-    HAL_UART_Transmit_IT(&huart1, s_jpeg_buf, hlen + jpg_len);
+    /* 合并 header + JPEG 到 jpeg_buf 头部，一次发送 */
+    memmove(jpeg_buf + hlen, jpeg_buf, jpg_len);
+    memcpy(jpeg_buf, header, hlen);
+    HAL_UART_Transmit_IT(&huart1, jpeg_buf, hlen + jpg_len);
 }
 
 /* ==================================================================== */
-/*                          Public API                                   */
+/*                          Public API                                  */
 /* ==================================================================== */
 
+/**
+ * @brief   初始化 OV7670 任务
+ */
 void OV7670_Task_Init(void)
 {
+    // OV7670硬件初始化
+    OV7670_Init();
+
+    // 启动 OV7670 图像采集
+    OV7670_Start();
+
+    // 创建 OV7670 队列
     OV7670QueueHandle = xQueueCreate(1, sizeof(uint8_t));
     if (!OV7670QueueHandle) {
         log_info("OV7670", "Queue create FAILED");
         return;
     }
-
-    OV7670_Start();
-
+    
+    // 创建 OV7670 任务
     xTaskCreate(OV7670_Task, "OV7670", OV7670_TASK_STACK_SIZE,
                 NULL, 1, NULL);
 }
 
+/**
+ * @brief   OV7670 任务
+ */
 void OV7670_Task(void *p)
 {
     uint8_t dummy;
+
     while(1)
     {
+        // 等待OV7670触发帧中断
         xQueueReceive(OV7670QueueHandle, &dummy, portMAX_DELAY);
-
-        rgb565_to_rgb888((const uint16_t *)capture_data, s_rgb888,
+        
+        // 将一帧RGB565图像数据转换为RGB888
+        rgb565_to_rgb888((const uint16_t *)capture_data, rgb888_buf,
                          OV7670_WIDTH * OV7670_HEIGHT);
 
-        s_jpeg_len = 0;
+        jpeg_len = 0;
         if (stbi_write_jpg_to_func(stb_write_cb, NULL,
                                    OV7670_WIDTH, OV7670_HEIGHT, 3,
-                                   s_rgb888, 20))
+                                   rgb888_buf, 20))
         {
-            vofa_send_jpg(1, s_jpeg_len);
+            vofa_send_jpg(1, jpeg_len);
         }
 
         const uint16_t *src = (const uint16_t *)capture_data;

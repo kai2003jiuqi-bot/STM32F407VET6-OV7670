@@ -13,6 +13,7 @@ void app_main()
     log_info("sys", "OV7670 Demo");
     log_info("sys", "Boot Count: %d", BOOTCOUNT_Get());
 
+
     // 硬件初始化
     ILI9341_Init();
     OV7670_Init();
@@ -22,15 +23,4 @@ void app_main()
 
     // 启动调度器
     vTaskStartScheduler();
-}
-
-/**
- * @brief 栈溢出钩子
- */
-void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
-{
-    printf("\n\n*** STACK OVERFLOW *** Task: %s\n\n", pcTaskName);
-    log_info("FATAL", "STACK OVERFLOW: %s", pcTaskName);
-    taskDISABLE_INTERRUPTS();
-    for (;;);
 }

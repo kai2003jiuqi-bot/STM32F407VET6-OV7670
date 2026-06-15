@@ -35,12 +35,6 @@ static void vofa_send_jpg(int img_id, size_t jpg_len);
  */
 void OV7670_Task_Init(void)
 {
-    // OV7670硬件初始化
-    OV7670_Init();
-
-    // 启动 OV7670 图像采集
-    OV7670_Start();
-
     // 创建 OV7670 队列
     OV7670QueueHandle = xQueueCreate(1, sizeof(uint8_t));
     if (!OV7670QueueHandle) {
@@ -61,6 +55,9 @@ void OV7670_Task_Init(void)
  */
 void OV7670_Task(void *p)
 {
+    // 启动 OV7670 图像采集
+    OV7670_Start();
+    
     while(1)
     {
         // 等待OV7670触发帧中断
@@ -69,8 +66,9 @@ void OV7670_Task(void *p)
 
         // 保存一帧图像数据，防止DMA持续写入覆盖
         const uint16_t *src = (const uint16_t *)capture_data;
+        memcpy(src, (uint16_t*)capture_data, sizeof(src));
 
-        static uint8_t rgb888_buf[OV7670_WIDTH * OV7670_HEIGHT * 3] 
+        static uint8_t rgb888_buf[OV7670_WIDTH * OV7670_HEIGHT * 3]
                     __attribute__((section(".ccmram"))); // 存储 RGB888 图像数据
 
         // 将一帧RGB565图像数据转换为RGB888
@@ -101,45 +99,43 @@ void OV7670_Task(void *p)
 
         for (int sy = 0; sy < OV7670_HEIGHT; sy++) // sy:source y 行索引
         {
-            /* 偶数行：仅水平插值 */
+            /* 偶数行：仅水平插值（只读不写，不修改 src） */
             for (int dx = 0; dx < 320; dx++) // dx:dest x 列索引
             {
-                int sx = dx >> 1;  // >>1 是除以2
-                uint16_t *p = src + sx + sy * OV7670_WIDTH; // 原始像素
-                // 奇数列：水平双线性插值
-                if (dx & 1)  
+                int sx = dx >> 1;  // sx:source x 列索引
+                uint16_t p0 = src[sx + sy * OV7670_WIDTH];
+                // 奇数列：与右侧像素水平平均
+                if (dx & 1)
                 {
-                    *p = (sx + 1 < OV7670_WIDTH)
-                        ? RGB565_Avg2(*p, *(p+1)): *p;
-                    row_buf[dx] = *p;
+                    p0 = (sx + 1 < OV7670_WIDTH)
+                        ? RGB565_Avg2(p0, src[sx + 1 + sy * OV7670_WIDTH])
+                        : p0;
                 }
-                // 偶数列：直接复制
-                else
-                {
-                    row_buf[dx] = *p;
-                }
+                row_buf[dx] = p0;
             }
             ILI9341_WritePixels(row_buf, 320);
 
-            // 非最后一行奇数行：双线性插值
+            // 非最后一行奇数行：水平 + 垂直双线性插值
             if (sy + 1 < OV7670_HEIGHT)
             {
                 for (int dx = 0; dx < 320; dx++)
                 {
                     int sx = dx >> 1;
-                    if (dx & 1 && sx + 1 < OV7670_WIDTH)
+                    uint16_t *row_up = &src[sy * OV7670_WIDTH];
+                    uint16_t *row_dn = &src[(sy + 1) * OV7670_WIDTH];
+
+                    if (dx & 1)
                     {
-                        // 奇数列：水平双线性插值
-                        row_buf[dx] = RGB565_Avg4(src[sx], 
-                                                  src[sx + 1 + OV7670_WIDTH], 
-                                                  src[sx], 
-                                                  src[sx + 1 + OV7670_WIDTH]
-                        );
+                        // 奇数列：四角双线性平均
+                        uint16_t ur = (sx + 1 < OV7670_WIDTH) ? row_up[sx + 1] : row_up[sx];
+                        uint16_t ll = row_dn[sx];
+                        uint16_t lr = (sx + 1 < OV7670_WIDTH) ? row_dn[sx + 1] : row_dn[sx];
+                        row_buf[dx] = RGB565_Avg4(row_up[sx], ur, ll, lr);
                     }
                     else
                     {
-                        // 偶数列或最后一行奇数列：垂直双线性插值
-                        row_buf[dx] = RGB565_Avg2(src[sx], src[sx + OV7670_WIDTH]);
+                        // 偶数列：垂直平均
+                        row_buf[dx] = RGB565_Avg2(row_up[sx], row_dn[sx]);
                     }
                 }
             }

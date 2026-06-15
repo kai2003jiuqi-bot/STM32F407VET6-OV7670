@@ -50,7 +50,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/bootCount.c
     App/ili9341_display.c
     App/OV7670.c
-    App/rgb565_utils.c
     App/stb_impl.c
     App/OV7670_task.c
 )

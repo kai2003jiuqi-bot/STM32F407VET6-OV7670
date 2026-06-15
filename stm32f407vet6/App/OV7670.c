@@ -39,7 +39,6 @@
 #include "OV7670.h"
 #include "OV7670_reg.h"
 #include "OV7670_task.h"
-#include "rgb565_utils.h"
 #include "ili9341_display.h"
 #include "dcmi.h"
 #include "i2c.h"
@@ -128,17 +127,6 @@ void OV7670_Stop(void)
 /**
  * @brief 帧完成中断（VSYNC上升沿）—— 将QQVGA图像放大到全屏显示。
  *
- * 算法概览（纯整数 RGB565 双线性插值，逐行处理）：
- *
- *   输出像素 (dx, dy) 对应输入像素 (dx/2, dy/2)：
- *
- *           dx偶, dy偶 → 直接复制输入像素
- *           dx奇, dy偶 → 水平平均 (p0 + p1)/2
- *           dx偶, dy奇 → 垂直平均 (p0 + p2)/2
- *           dx奇, dy奇 → 四角平均 (p0+p1+p2+p3)/4
- *
- *   内存优化：不放完整输出帧缓冲，每处理完1个输入行
- *   （产生2个输出行）立刻送显，总临时栈~1.3KB。
  */
 void HAL_DCMI_FrameEventCallback(DCMI_HandleTypeDef *hdcmi)
 {

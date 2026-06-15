@@ -9,8 +9,6 @@
 #include "queue.h"
 #include "task.h"
 
-#define OV7670_TASK_STACK_SIZE  (256 * 20)
-
 extern xQueueHandle OV7670QueueHandle;
 
 void OV7670_Task_Init(void);

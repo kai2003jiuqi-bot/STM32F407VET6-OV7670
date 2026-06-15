@@ -5,7 +5,6 @@
 #include "ili9341_display.h"
 #include "OV7670.h"
 #include "OV7670_task.h"
-#include "rgb565_utils.h"
 
 void app_main()
 {

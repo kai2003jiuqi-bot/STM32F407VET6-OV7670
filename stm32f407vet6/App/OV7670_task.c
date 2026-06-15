@@ -66,15 +66,24 @@ void OV7670_Task(void *p)
         uint8_t dummy;
         xQueueReceive(OV7670QueueHandle, &dummy, portMAX_DELAY);
 
+        // 保存一帧图像数据，防止DMA持续写入覆盖
+        const uint16_t *src = (const uint16_t *)capture_data;
+
         // 将一帧RGB565图像数据转换为RGB888
-        rgb565_to_rgb888((const uint16_t *)capture_data, rgb888_buf,
-                         OV7670_WIDTH * OV7670_HEIGHT);
+        rgb565_to_rgb888(   src, 
+                            rgb888_buf,
+                            OV7670_WIDTH * OV7670_HEIGHT
+        );
 
         // 将RGB888图像数据压缩为JPEG格式
         jpeg_len = 0;
-        if (stbi_write_jpg_to_func(stb_write_cb, NULL,
-                                   OV7670_WIDTH, OV7670_HEIGHT, 3,
-                                   rgb888_buf, 20))
+        if (stbi_write_jpg_to_func( stb_write_cb, 
+                                    NULL,
+                                    OV7670_WIDTH, OV7670_HEIGHT, 
+                                    3,
+                                    rgb888_buf, 
+                                    20
+        ))
         {
             // 压缩成功，发送JPEG数据到Vofa+
             vofa_send_jpg(1, jpeg_len);
@@ -89,7 +98,6 @@ void OV7670_Task(void *p)
 
         for (int sy = 0; sy < OV7670_HEIGHT; sy++) // sy:source y 行索引
         {
-            const uint16_t *src = (const uint16_t *)capture_data;
             memcpy(row0, &src[sy * OV7670_WIDTH], OV7670_WIDTH * sizeof(uint16_t));
 
             /* ================== 输出行 A (dy = sy*2) ================== */

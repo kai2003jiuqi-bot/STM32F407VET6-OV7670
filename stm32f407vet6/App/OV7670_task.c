@@ -7,6 +7,7 @@
 #include "stb_image_write.h"
 #include "vofa.h"
 #include "log.h"
+#include "ili9341_display.h"
 #include <string.h>
 
 #define RGB565_R(v)  (((v) >> 11) & 0x1F)   
@@ -51,8 +52,11 @@ void OV7670_Task_Init(void)
     }
     
     // 创建 OV7670 任务
-    xTaskCreate(OV7670_Task, "OV7670", OV7670_TASK_STACK_SIZE,
-                NULL, 1, NULL);
+    xTaskCreate(OV7670_Task, 
+                "OV7670", 
+                OV7670_TASK_STACK_SIZE,
+                NULL, 1, NULL
+    );
 }
 
 /**
@@ -77,12 +81,12 @@ void OV7670_Task(void *p)
 
         // 将RGB888图像数据压缩为JPEG格式
         jpeg_len = 0;
-        if (stbi_write_jpg_to_func( stb_write_cb, 
-                                    NULL,
-                                    OV7670_WIDTH, OV7670_HEIGHT, 
-                                    3,
-                                    rgb888_buf, 
-                                    20
+        if (stbi_write_jpg_to_func(stb_write_cb, 
+                                   NULL,
+                                   OV7670_WIDTH, OV7670_HEIGHT, 
+                                   3,
+                                   rgb888_buf, 
+                                   20
         ))
         {
             // 压缩成功，发送JPEG数据到Vofa+
@@ -94,6 +98,7 @@ void OV7670_Task(void *p)
         uint16_t row0[OV7670_WIDTH];         // 320B: 当前输入行
         uint16_t row1[OV7670_WIDTH];         // 320B: 下一输入行
 
+        // 设置LCD显示区域
         ILI9341_SetRegion(0, 0, 319, 239);
 
         for (int sy = 0; sy < OV7670_HEIGHT; sy++) // sy:source y 行索引
@@ -102,16 +107,17 @@ void OV7670_Task(void *p)
 
             /* ================== 输出行 A (dy = sy*2) ================== */
             /* 偶数行：仅水平插值 */
-            for (int dx = 0; dx < 320; dx++)    
+            for (int dx = 0; dx < 320; dx++) // dx:dest x 列索引
             {
-                int sx = dx >> 1;  // sx:source x 列索引
-                uint16_t p = row0[sx];
-                if (dx & 1)  /* 奇数列：与右侧像素水平平均 */
+                int sx = dx >> 1;  // >>1 是除以2
+                uint16_t p = row0[sx]; // 原始像素
+                // 奇数列：水平双线性插值
+                if (dx & 1)  
                 {
                     p = (sx + 1 < OV7670_WIDTH)
-                            ? RGB565_Avg2(p, row0[sx + 1])
-                            : p;
+                        ? RGB565_Avg2(p, row0[sx + 1]): p;
                 }
+                // 偶数列：直接复制
                 row_buf[dx] = p;
             }
             ILI9341_WritePixels(row_buf, 320);
@@ -126,15 +132,17 @@ void OV7670_Task(void *p)
                 for (int dx = 0; dx < 320; dx++)
                 {
                     int sx = dx >> 1;
-                    if (dx & 1)
+                    /* 奇数列：水平双线性插值 */
+                    if (dx & 1 && sx + 1 < OV7670_WIDTH)
                     {
                         /* 四角双线性平均 */
-                        uint16_t tr = (sx + 1 < OV7670_WIDTH)
-                                        ? row0[sx + 1] : row0[sx];
-                        uint16_t br = (sx + 1 < OV7670_WIDTH)
-                                        ? row1[sx + 1] : row1[sx];
-                        row_buf[dx] = RGB565_Avg4(row0[sx], tr, row1[sx], br);
+                        row_buf[dx] = RGB565_Avg4(row0[sx], 
+                                                  row0[sx + 1], 
+                                                  row1[sx], 
+                                                  row1[sx + 1]
+                        );
                     }
+                    // 偶数列：垂直双线性插值
                     else
                     {
                         /* 垂直平均 */

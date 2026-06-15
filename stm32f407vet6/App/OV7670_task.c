@@ -20,9 +20,6 @@ xQueueHandle OV7670QueueHandle = NULL;
 
 static uint8_t  jpeg_buf[1024*4]; // 存储压缩后的JPEG图片
 static size_t   jpeg_len; // 计算当前压缩图片的长度           
-static uint8_t rgb888_buf[OV7670_WIDTH * OV7670_HEIGHT * 3] 
-                __attribute__((section(".ccmram")));
-
 static void stb_write_cb(void *context, void *data, int size);
 static void rgb565_to_rgb888(const uint16_t *src, uint8_t *dst, int pixels);
 static uint16_t RGB565_Avg2(uint16_t p0, uint16_t p1);
@@ -72,6 +69,9 @@ void OV7670_Task(void *p)
 
         // 保存一帧图像数据，防止DMA持续写入覆盖
         const uint16_t *src = (const uint16_t *)capture_data;
+
+        static uint8_t rgb888_buf[OV7670_WIDTH * OV7670_HEIGHT * 3] 
+                    __attribute__((section(".ccmram"))); // 存储 RGB888 图像数据
 
         // 将一帧RGB565图像数据转换为RGB888
         rgb565_to_rgb888(   src, 

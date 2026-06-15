@@ -136,10 +136,15 @@ void OV7670_Task(void *p)
                     if (dx & 1 && sx + 1 < OV7670_WIDTH)
                     {
                         /* 四角双线性平均 */
-                        row_buf[dx] = RGB565_Avg4(row0[sx], 
-                                                  row0[sx + 1], 
-                                                  row1[sx], 
-                                                  row1[sx + 1]
+                        // row_buf[dx] = RGB565_Avg4(row0[sx], 
+                        //                           row0[sx + 1], 
+                        //                           row1[sx], 
+                        //                           row1[sx + 1]
+                        // );
+                        row_buf[dx] = RGB565_Avg4(src[sx], 
+                                                  src[sx + 1 + OV7670_WIDTH], 
+                                                  src[sx], 
+                                                  src[sx + 1 + OV7670_WIDTH]
                         );
                     }
                     // 偶数列：垂直双线性插值
